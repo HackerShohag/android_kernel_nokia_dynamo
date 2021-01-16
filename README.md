@@ -2,8 +2,8 @@
 Device Tree for Nokia 2 (E1M)
 
 The Nokia 2 (codenamed "E1M") is a low-end smartphone from Nokia. It was released in November 2017.
-| Basic                   |	Spec Sheet                                                                                                                     |
-| -----------------------:|:------------------------------------------------------------------------------------------------------------------------------ |
+| Basic                   |	Specs |
+| -----------------------:|:---------- |
 | CPU	Quad-core | 1.3 GHz Cortex-A7 |
 | Chipset |	Qualcomm MSM8909v2 Snapdragon 212 |
 | GPU |	Adreno 304 |
