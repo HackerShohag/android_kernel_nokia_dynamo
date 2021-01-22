@@ -45,11 +45,6 @@ module_param(msm_rmnet_bam_headroom_check_failure, ulong, S_IRUGO);
 MODULE_PARM_DESC(msm_rmnet_bam_headroom_check_failure,
 		 "Number of packets with insufficient headroom");
 
-/* Packet threshold. */
-static unsigned int pkt_threshold = 1;
-module_param(pkt_threshold,
-	     uint, S_IRUGO | S_IWUSR | S_IWGRP);
-
 #define DEBUG_MASK_LVL0 (1U << 0)
 #define DEBUG_MASK_LVL1 (1U << 1)
 #define DEBUG_MASK_LVL2 (1U << 2)
@@ -231,15 +226,7 @@ static void bam_recv_notify(void *dev, struct sk_buff *skb)
 			p->stats.rx_packets, skb->len);
 
 		/* Deliver to network stack */
-		if (pkt_threshold == 1) {
-			netif_rx_ni(skb);
-		} else {
-			/* For every nth packet, use netif_rx_ni(). */
-			if (p->stats.rx_packets % pkt_threshold == 0)
-				netif_rx_ni(skb);
-			else
-				netif_rx(skb);
-		}
+		netif_rx_ni(skb);
 	} else
 		pr_err("[%s] %s: No skb received",
 			((struct net_device *)dev)->name, __func__);
@@ -371,21 +358,6 @@ static void bam_notify(void *dev, int event, unsigned long data)
 
 static int __rmnet_open(struct net_device *dev)
 {
-	int r;
-	struct rmnet_private *p = netdev_priv(dev);
-
-	DBG0("[%s] __rmnet_open()\n", dev->name);
-
-	if (p->device_up == DEVICE_UNINITIALIZED) {
-		r = msm_bam_dmux_open(p->ch_id, dev, bam_notify);
-		if (r < 0) {
-			DBG0("%s: ch=%d failed with rc %d\n",
-					__func__, p->ch_id, r);
-			return -ENODEV;
-		}
-	}
-
-	p->device_up = DEVICE_ACTIVE;
 	return 0;
 }
 
@@ -395,10 +367,7 @@ static int rmnet_open(struct net_device *dev)
 
 	DBG0("[%s] rmnet_open()\n", dev->name);
 
-	rc = __rmnet_open(dev);
-
-	if (rc == 0)
-		netif_start_queue(dev);
+	netif_start_queue(dev);
 
 	return rc;
 }
@@ -451,7 +420,7 @@ static int rmnet_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (netif_queue_stopped(dev)) {
 		pr_err("[%s]fatal: rmnet_xmit called when "
 			"netif_queue is stopped", dev->name);
-		return NETDEV_TX_BUSY;
+		return 0;
 	}
 
 	spin_lock_irqsave(&p->lock, flags);
@@ -547,7 +516,6 @@ static const struct net_device_ops rmnet_ops_ip = {
 static void _rmnet_free_bam_later(struct work_struct *work)
 {
 	struct rmnet_free_bam_work *fwork;
-
 	fwork = container_of(work, struct rmnet_free_bam_work, work);
 
 	DBG0("%s: unregister_netdev, done", __func__);
@@ -824,7 +792,7 @@ static int bam_rmnet_probe(struct platform_device *pdev)
 	else
 		dev_name = "rev_rmnet%d";
 
-	dev = alloc_netdev(sizeof(*p), dev_name, NET_NAME_ENUM, rmnet_setup);
+	dev = alloc_netdev(sizeof(*p), dev_name, rmnet_setup);
 	if (!dev) {
 		pr_err("%s: no memory for netdev %d\n", __func__, i);
 		return -ENOMEM;
@@ -852,6 +820,20 @@ static int bam_rmnet_probe(struct platform_device *pdev)
 
 	rmnet_debug_init(dev);
 
+	DBG0("[%s] OPEN()\n", dev->name);
+
+	if (p->device_up == DEVICE_UNINITIALIZED) {
+		ret = msm_bam_dmux_open(p->ch_id, dev, bam_notify);
+		if (ret < 0) {
+			DBG0("%s: ch=%d failed with rc %d\n",
+			     __func__, p->ch_id, ret);
+			unregister_netdev(dev);
+			free_netdev(dev);
+			return -EPROBE_DEFER;
+		}
+	}
+
+	p->device_up = DEVICE_ACTIVE;
 	return 0;
 }
 

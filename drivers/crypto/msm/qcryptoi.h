@@ -1,6 +1,6 @@
 /* QTI Crypto driver
  *
- * Copyright (c) 2014, 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -71,3 +71,4 @@ inline int _fips_qcrypto_aead_selftest(struct fips_selftest_data *selftest_d)
 #endif  /* CONFIG_FIPS_ENABLE*/
 
 #endif  /* __CRYPTO_MSM_QCRYPTOI_H */
+

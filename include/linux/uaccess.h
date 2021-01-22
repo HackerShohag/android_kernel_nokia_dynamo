@@ -15,7 +15,7 @@
  */
 static inline void pagefault_disable(void)
 {
-	preempt_count_inc();
+	inc_preempt_count();
 	/*
 	 * make sure to have issued the store before a pagefault
 	 * can hit.
@@ -25,16 +25,17 @@ static inline void pagefault_disable(void)
 
 static inline void pagefault_enable(void)
 {
-#ifndef CONFIG_PREEMPT
 	/*
 	 * make sure to issue those last loads/stores before enabling
 	 * the pagefault handler again.
 	 */
 	barrier();
-	preempt_count_dec();
-#else
-	preempt_enable();
-#endif
+	dec_preempt_count();
+	/*
+	 * make sure we do..
+	 */
+	barrier();
+	preempt_check_resched();
 }
 
 #ifndef ARCH_HAS_NOCACHE_UACCESS
@@ -106,12 +107,5 @@ extern long __probe_kernel_read(void *dst, const void *src, size_t size);
  */
 extern long notrace probe_kernel_write(void *dst, const void *src, size_t size);
 extern long notrace __probe_kernel_write(void *dst, const void *src, size_t size);
-
-#ifndef user_access_begin
-#define user_access_begin() do { } while (0)
-#define user_access_end() do { } while (0)
-#define unsafe_get_user(x, ptr, err) do { if (unlikely(__get_user(x, ptr))) goto err; } while (0)
-#define unsafe_put_user(x, ptr, err) do { if (unlikely(__put_user(x, ptr))) goto err; } while (0)
-#endif
 
 #endif		/* __LINUX_UACCESS_H__ */

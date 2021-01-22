@@ -21,6 +21,11 @@
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
  */
 
 #include <linux/module.h>
@@ -95,7 +100,7 @@ static unsigned long tx_idle_delay = (HZ * 2);
 
 struct hci_ibs_cmd {
 	u8 cmd;
-} __packed;
+} __attribute__((packed));
 
 struct ibs_struct {
 	unsigned long rx_state;
@@ -372,7 +377,7 @@ static void hci_ibs_wake_retrans_timeout(unsigned long arg)
 	unsigned long retransmit = 0;
 
 	BT_DBG("hu %pK wake retransmit timeout in %lu state",
-		hu, ibs->tx_ibs_state);
+	       hu, ibs->tx_ibs_state);
 
 	spin_lock_irqsave_nested(&ibs->hci_ibs_lock,
 					flags, SINGLE_DEPTH_NESTING);
@@ -515,20 +520,20 @@ static int ibs_close(struct hci_uart *hu)
 
 	BT_DBG("hu %pK", hu);
 
-	skb_queue_purge(&ibs->tx_wait_q);
-	skb_queue_purge(&ibs->txq);
-
-	del_timer_sync(&ibs->tx_idle_timer);
-	destroy_workqueue(ibs->workqueue);
-	del_timer_sync(&ibs->wake_retrans_timer);
-
-	__ibs_msm_serial_clock_request_off(hu->tty);
 	ibs_msm_serial_clock_vote(HCI_IBS_VOTE_STATS_UPDATE, hu);
 	ibs_log_local_stats(ibs);
 
+	skb_queue_purge(&ibs->tx_wait_q);
+	skb_queue_purge(&ibs->txq);
+	del_timer(&ibs->tx_idle_timer);
+	del_timer(&ibs->wake_retrans_timer);
+	destroy_workqueue(ibs->workqueue);
 	ibs->ibs_hu = NULL;
+
 	kfree_skb(ibs->rx_skb);
+
 	hu->priv = NULL;
+
 	kfree(ibs);
 
 	return 0;
@@ -619,7 +624,7 @@ static void ibs_device_want_to_sleep(struct hci_uart *hu)
 }
 
 /*
- * Called upon wake-up-acknowledgment from the device
+ * Called upon wake-up-acknowledgement from the device
  */
 static void ibs_device_woke_up(struct hci_uart *hu)
 {
@@ -717,15 +722,14 @@ static int ibs_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 	return 0;
 }
 
-static inline int ibs_check_data_len(struct hci_dev *hdev,
-					struct ibs_struct *ibs, int len)
+static inline int ibs_check_data_len(struct ibs_struct *ibs, int len)
 {
 	register int room = skb_tailroom(ibs->rx_skb);
 
 	BT_DBG("len %d room %d", len, room);
 
 	if (!len) {
-		hci_recv_frame(hdev, ibs->rx_skb);
+		hci_recv_frame(ibs->rx_skb);
 	} else if (len > room) {
 		BT_ERR("Data length is too large");
 		kfree_skb(ibs->rx_skb);
@@ -753,7 +757,7 @@ static int ibs_recv(struct hci_uart *hu, void *data, int count)
 	register int len, type, dlen;
 
 	BT_DBG("hu %pK count %d rx_state %ld rx_count %ld",
-			hu, count, ibs->rx_state, ibs->rx_count);
+	       hu, count, ibs->rx_state, ibs->rx_count);
 
 	ptr = data;
 	while (count) {
@@ -768,7 +772,7 @@ static int ibs_recv(struct hci_uart *hu, void *data, int count)
 			switch (ibs->rx_state) {
 			case HCI_IBS_W4_DATA:
 				BT_DBG("Complete data");
-				hci_recv_frame(hu->hdev, ibs->rx_skb);
+				hci_recv_frame(ibs->rx_skb);
 
 				ibs->rx_state = HCI_IBS_W4_PACKET_TYPE;
 				ibs->rx_skb = NULL;
@@ -780,7 +784,7 @@ static int ibs_recv(struct hci_uart *hu, void *data, int count)
 				BT_DBG("Event header: evt 0x%2.2x plen %d",
 					eh->evt, eh->plen);
 
-				ibs_check_data_len(hu->hdev, ibs, eh->plen);
+				ibs_check_data_len(ibs, eh->plen);
 				continue;
 
 			case HCI_IBS_W4_ACL_HDR:
@@ -789,7 +793,7 @@ static int ibs_recv(struct hci_uart *hu, void *data, int count)
 
 				BT_DBG("ACL header: dlen %d", dlen);
 
-				ibs_check_data_len(hu->hdev, ibs, dlen);
+				ibs_check_data_len(ibs, dlen);
 				continue;
 
 			case HCI_IBS_W4_SCO_HDR:
@@ -797,7 +801,7 @@ static int ibs_recv(struct hci_uart *hu, void *data, int count)
 
 				BT_DBG("SCO header: dlen %d", sh->dlen);
 
-				ibs_check_data_len(hu->hdev, ibs, sh->dlen);
+				ibs_check_data_len(ibs, sh->dlen);
 				continue;
 			}
 		}
@@ -872,7 +876,6 @@ static int ibs_recv(struct hci_uart *hu, void *data, int count)
 static struct sk_buff *ibs_dequeue(struct hci_uart *hu)
 {
 	struct ibs_struct *ibs = hu->priv;
-
 	return skb_dequeue(&ibs->txq);
 }
 

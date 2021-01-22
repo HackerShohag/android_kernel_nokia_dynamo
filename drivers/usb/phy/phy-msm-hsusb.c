@@ -132,7 +132,6 @@ struct msm_hsphy {
 	int			vdd_levels[3]; /* none, low, high */
 	u32			lpm_flags;
 	bool			suspended;
-	bool			vdda_force_on;
 
 	/* Using external VBUS/ID notification */
 	bool			ext_vbus_id;
@@ -281,7 +280,7 @@ static int msm_hsphy_reset(struct usb_phy *uphy)
 
 		/* Assert/deassert TCSR Reset */
 		writel_relaxed((val | TCSR_HSPHY_ARES), phy->tcsr);
-		usleep_range(1000, 1200);
+		usleep(1000);
 		writel_relaxed((val & ~TCSR_HSPHY_ARES), phy->tcsr);
 	} else if (phy->sleep_clk_reset) {
 		/* Reset PHY using sleep clock */
@@ -381,23 +380,20 @@ static int msm_hsphy_set_suspend(struct usb_phy *uphy, int suspend)
 			writel_relaxed(ALT_INTERRUPT_MASK,
 				phy->base + HS_PHY_IRQ_STAT_REG(i));
 
-			if (host) {
-				/* Enable DP and DM HV interrupts */
-				if (phy->core_ver >= MSM_CORE_VER_120)
-					msm_usb_write_readback(phy->base,
-							ALT_INTERRUPT_EN_REG(i),
-							(LINESTATE_INTEN |
-							DPINTEN | DMINTEN),
-							(LINESTATE_INTEN |
-							DPINTEN | DMINTEN));
-				else
-					msm_usb_write_readback(phy->base,
-							ALT_INTERRUPT_EN_REG(i),
-							DPDMHV_INT_MASK,
-							DPDMHV_INT_MASK);
-
-				udelay(5);
-			} else {
+			/* Enable DP and DM HV interrupts */
+			if (phy->core_ver >= MSM_CORE_VER_120)
+				msm_usb_write_readback(phy->base,
+						ALT_INTERRUPT_EN_REG(i),
+						(LINESTATE_INTEN |
+						DPINTEN | DMINTEN),
+						(LINESTATE_INTEN |
+						DPINTEN | DMINTEN));
+			else
+				msm_usb_write_readback(phy->base,
+						ALT_INTERRUPT_EN_REG(i),
+						DPDMHV_INT_MASK,
+						DPDMHV_INT_MASK);
+			if (!host) {
 				/* set the following:
 				 * OTGDISABLE0=1
 				 * USB2_SUSPEND_N_SEL=1, USB2_SUSPEND_N=0
@@ -487,20 +483,20 @@ static int msm_hsphy_set_suspend(struct usb_phy *uphy, int suspend)
 					HS_PHY_CTRL_REG(i),
 					(OTGSESSVLDHV_INTEN | IDHV_INTEN),
 					0);
-			if (host) {
-				/* Clear interrupt latch register */
-				writel_relaxed(ALT_INTERRUPT_MASK,
-					phy->base + HS_PHY_IRQ_STAT_REG(i));
-				/* Disable DP and DM HV interrupt */
-				if (phy->core_ver >= MSM_CORE_VER_120)
-					msm_usb_write_readback(phy->base,
-							ALT_INTERRUPT_EN_REG(i),
-							LINESTATE_INTEN, 0);
-				else
-					msm_usb_write_readback(phy->base,
-							ALT_INTERRUPT_EN_REG(i),
-							DPDMHV_INT_MASK, 0);
-			} else {
+
+			/* Clear interrupt latch register */
+			writel_relaxed(ALT_INTERRUPT_MASK,
+				phy->base + HS_PHY_IRQ_STAT_REG(i));
+			/* Disable DP and DM HV interrupt */
+			if (phy->core_ver >= MSM_CORE_VER_120)
+				msm_usb_write_readback(phy->base,
+						ALT_INTERRUPT_EN_REG(i),
+						LINESTATE_INTEN, 0);
+			else
+				msm_usb_write_readback(phy->base,
+						ALT_INTERRUPT_EN_REG(i),
+						DPDMHV_INT_MASK, 0);
+			if (!host) {
 				/* Disable PHY retention */
 				if (phy->set_pllbtune)
 					msm_usb_write_readback(phy->base,
@@ -655,7 +651,7 @@ static int msm_hsphy_probe(struct platform_device *pdev)
 		goto err_ret;
 	}
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "core");
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(dev, "missing memory base resource\n");
 		ret = -ENODEV;
@@ -669,7 +665,7 @@ static int msm_hsphy_probe(struct platform_device *pdev)
 		goto err_ret;
 	}
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "tcsr");
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (res) {
 		phy->tcsr = devm_ioremap_nocache(dev, res->start,
 						 resource_size(res));
@@ -766,20 +762,6 @@ static int msm_hsphy_probe(struct platform_device *pdev)
 	phy->set_pllbtune = of_property_read_bool(dev->of_node,
 						 "qcom,set-pllbtune");
 
-	/*
-	 * If this workaround flag is enabled, the HW requires the 1.8 and 3.x
-	 * regulators to be kept ON when entering suspend. The easiest way to
-	 * do that is to call regulator_enable() an additional time here,
-	 * since it will keep the regulators' reference counts nonzero.
-	 */
-	phy->vdda_force_on = of_property_read_bool(dev->of_node,
-						"qcom,vdda-force-on");
-	if (phy->vdda_force_on) {
-		ret = msm_hsusb_ldo_enable(phy, 1);
-		if (ret)
-			goto disable_clk;
-	}
-
 	platform_set_drvdata(pdev, phy);
 
 	if (of_property_read_bool(dev->of_node, "qcom,vbus-valid-override"))
@@ -821,10 +803,6 @@ static int msm_hsphy_remove(struct platform_device *pdev)
 
 	usb_remove_phy(&phy->phy);
 	clk_disable_unprepare(phy->sleep_clk);
-
-	/* Undo the additional regulator enable */
-	if (phy->vdda_force_on)
-		msm_hsusb_ldo_enable(phy, 0);
 	msm_hsusb_ldo_enable(phy, 0);
 	regulator_disable(phy->vdd);
 	msm_hsusb_config_vdd(phy, 0);

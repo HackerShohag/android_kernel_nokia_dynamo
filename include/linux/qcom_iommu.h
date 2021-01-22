@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,13 +17,10 @@
 #include <linux/clk.h>
 #include <linux/list.h>
 #include <linux/regulator/consumer.h>
-#include <linux/platform_device.h>
-#include <linux/idr.h>
 #include <soc/qcom/socinfo.h>
 
 extern pgprot_t     pgprot_kernel;
 extern struct bus_type msm_iommu_sec_bus_type;
-extern struct bus_type *msm_iommu_non_sec_bus_type;
 extern struct iommu_access_ops iommu_access_ops_v0;
 extern struct iommu_access_ops iommu_access_ops_v1;
 
@@ -138,7 +135,6 @@ struct msm_iommu_drvdata {
 	int needs_rem_spinlock;
 	int powered_on;
 	unsigned int model;
-	struct idr asid_idr;
 };
 
 /**
@@ -186,7 +182,6 @@ void iommu_resume(const struct msm_iommu_drvdata *iommu_drvdata);
  * @asid		ASID used with this context.
  * @attach_count	Number of time this context has been attached.
  * @report_error_on_fault - true if error is returned back to master
- * @dynamic		true if any dynamic domain is ever attached to this CB
  *
  * A msm_iommu_ctx_drvdata holds the driver data for a single context bank
  * within each IOMMU hardware instance
@@ -205,8 +200,6 @@ struct msm_iommu_ctx_drvdata {
 	u32 sid_mask[MAX_NUM_SMR];
 	unsigned int n_sid_mask;
 	bool report_error_on_fault;
-	unsigned int prefetch_depth;
-	bool dynamic;
 };
 
 enum dump_reg {
@@ -336,22 +329,10 @@ void msm_iommu_remote_p0_spin_unlock(unsigned int need_lock);
  * their platform devices.
  */
 struct device *msm_iommu_get_ctx(const char *ctx_name);
-struct bus_type *msm_iommu_get_bus(struct device *dev);
-int msm_iommu_bus_register(void);
-void msm_access_control(void);
 #else
 static inline struct device *msm_iommu_get_ctx(const char *ctx_name)
 {
 	return NULL;
-}
-
-static inline struct bus_type *msm_iommu_get_bus(struct device *dev)
-{
-	return &platform_bus_type;
-}
-
-static inline void msm_access_control(void)
-{
 }
 #endif
 
@@ -414,16 +395,5 @@ u32 msm_iommu_get_mair0(void);
 u32 msm_iommu_get_mair1(void);
 u32 msm_iommu_get_prrr(void);
 u32 msm_iommu_get_nmrr(void);
-
-/* events for notifiers passed to msm_iommu_register_notify */
-#define TLB_SYNC_TIMEOUT 1
-
-#ifdef CONFIG_MSM_IOMMU_V1
-void msm_iommu_register_notify(struct notifier_block *nb);
-#else
-static inline void msm_iommu_register_notify(struct notifier_block *nb)
-{
-}
-#endif
 
 #endif

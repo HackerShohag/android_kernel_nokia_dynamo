@@ -32,7 +32,6 @@
 #include <asm/unaligned.h>
 
 #include <net/bluetooth/bluetooth.h>
-#include <net/bluetooth/l2cap.h>
 #include <net/bluetooth/hci_core.h>
 
 #include "bnep.h"
@@ -451,16 +450,16 @@ static int bnep_session(void *arg)
 	struct net_device *dev = s->dev;
 	struct sock *sk = s->sock->sk;
 	struct sk_buff *skb;
-	DEFINE_WAIT_FUNC(wait, woken_wake_function);
+	wait_queue_t wait;
 
 	BT_DBG("");
 
 	set_user_nice(current, -15);
 
+	init_waitqueue_entry(&wait, current);
 	add_wait_queue(sk_sleep(sk), &wait);
 	while (1) {
-		/* Ensure session->terminate is updated */
-		smp_mb__before_atomic();
+		set_current_state(TASK_INTERRUPTIBLE);
 
 		if (atomic_read(&s->terminate))
 			break;
@@ -482,8 +481,9 @@ static int bnep_session(void *arg)
 				break;
 		netif_wake_queue(dev);
 
-		wait_woken(&wait, TASK_INTERRUPTIBLE, MAX_SCHEDULE_TIMEOUT);
+		schedule();
 	}
+	__set_current_state(TASK_RUNNING);
 	remove_wait_queue(sk_sleep(sk), &wait);
 
 	/* Cleanup session */
@@ -510,12 +510,20 @@ static int bnep_session(void *arg)
 
 static struct device *bnep_get_device(struct bnep_session *session)
 {
-	struct l2cap_conn *conn = l2cap_pi(session->sock->sk)->chan->conn;
+	bdaddr_t *src = &bt_sk(session->sock->sk)->src;
+	bdaddr_t *dst = &bt_sk(session->sock->sk)->dst;
+	struct hci_dev *hdev;
+	struct hci_conn *conn;
 
-	if (!conn || !conn->hcon)
+	hdev = hci_get_route(dst, src);
+	if (!hdev)
 		return NULL;
 
-	return &conn->hcon->dev;
+	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, dst);
+
+	hci_dev_put(hdev);
+
+	return conn ? &conn->dev : NULL;
 }
 
 static struct device_type bnep_type = {
@@ -531,17 +539,13 @@ int bnep_add_connection(struct bnep_connadd_req *req, struct socket *sock)
 
 	BT_DBG("");
 
-	if (!l2cap_is_socket(sock))
-		return -EBADFD;
-
-	baswap((void *) dst, &l2cap_pi(sock->sk)->chan->dst);
-	baswap((void *) src, &l2cap_pi(sock->sk)->chan->src);
+	baswap((void *) dst, &bt_sk(sock->sk)->dst);
+	baswap((void *) src, &bt_sk(sock->sk)->src);
 
 	/* session struct allocated as private part of net_device */
 	dev = alloc_netdev(sizeof(struct bnep_session),
-			   (*req->device) ? req->device : "bnep%d",
-			   NET_NAME_UNKNOWN,
-			   bnep_net_setup);
+				(*req->device) ? req->device : "bnep%d",
+				bnep_net_setup);
 	if (!dev)
 		return -ENOMEM;
 
@@ -620,7 +624,7 @@ int bnep_del_connection(struct bnep_conndel_req *req)
 	s = __bnep_get_session(req->dst);
 	if (s) {
 		atomic_inc(&s->terminate);
-		wake_up_interruptible(sk_sleep(s->sock->sk));
+		wake_up_process(s->task);
 	} else
 		err = -ENOENT;
 

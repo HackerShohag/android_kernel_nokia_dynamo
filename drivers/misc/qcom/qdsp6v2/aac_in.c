@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2014, 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -243,12 +243,7 @@ static long aac_in_ioctl_shared(struct file *file, unsigned int cmd, void *arg)
 		}
 
 		min_bitrate = ((cfg->sample_rate)*(cfg->channels))/2;
-		/* This calculation should be based on AAC mode. But we cannot
-		 * get AAC mode in this setconfig. min_bitrate's logical max
-		 * value is 24000. So if min_bitrate is higher than 24000,
-		 * choose 24000.
-		 */
-		if (min_bitrate > 24000)
+		if (min_bitrate < 24000)
 			min_bitrate = 24000;
 		max_bitrate = 6*(cfg->sample_rate)*(cfg->channels);
 		if (max_bitrate > 192000)
@@ -257,6 +252,15 @@ static long aac_in_ioctl_shared(struct file *file, unsigned int cmd, void *arg)
 			(cfg->bit_rate > max_bitrate)) {
 			pr_err("%s: bitrate permissible: max=%d, min=%d\n",
 				__func__, max_bitrate, min_bitrate);
+			pr_err("%s: ERROR in setting bitrate = %d\n",
+				__func__, cfg->bit_rate);
+			rc = -EINVAL;
+			break;
+		}
+		/* For aac-lc, min_bit_rate = min(24Kbps, 0.5*SR*num_chan);
+		max_bi_rate = min(192Kbps, 6*SR*num_chan);
+		min_sample_rate = 8000Hz, max_rate=48000 */
+		if ((cfg->bit_rate < 24000) || (cfg->bit_rate > 192000)) {
 			pr_err("%s: ERROR in setting bitrate = %d\n",
 				__func__, cfg->bit_rate);
 			rc = -EINVAL;
@@ -669,7 +673,6 @@ static int aac_in_open(struct inode *inode, struct file *file)
 		goto fail;
 	}
 	audio->opened = 1;
-	audio->reset_event = false;
 	atomic_set(&audio->in_count, PCM_BUF_COUNT);
 	atomic_set(&audio->out_count, 0x00);
 	audio->enc_compat_ioctl = aac_in_compat_ioctl;

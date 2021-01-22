@@ -1,4 +1,4 @@
-/* Copyright (c) 2014, 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <sound/hwdep.h>
 #include <sound/devdep_params.h>
+
 #include "msm-pcm-routing-devdep.h"
 #include "msm-ds2-dap-config.h"
 
@@ -91,6 +92,7 @@ static int msm_pcm_routing_hwdep_compat_ioctl(struct snd_hwdep *hw,
 		break;
 	}
 	return ret;
+
 }
 #endif
 
@@ -130,6 +132,7 @@ int msm_pcm_routing_hwdep_new(struct snd_soc_pcm_runtime *runtime,
 #ifdef CONFIG_COMPAT
 	hwdep->ops.ioctl_compat = msm_pcm_routing_hwdep_compat_ioctl;
 #endif
-	return rc;
+
+	return 0;
 }
 #endif

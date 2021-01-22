@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -172,6 +172,12 @@ static int epm_psoc_generic_request(struct epm_adc_drv *epm_adc,
 	if (rc)
 		return rc;
 
+	memset(tx_buf, 0, sizeof(tx_buf));
+
+	rc = spi_sync(epm_adc->epm_spi_client, &m);
+	if (rc)
+		return rc;
+
 	for (data_loop = 0; data_loop < 64; data_loop++)
 		psoc_get_data->buf[data_loop] = rx_buf[data_loop];
 
@@ -261,8 +267,10 @@ static long epm_adc_ioctl(struct file *file, unsigned int cmd,
 			int rc;
 
 			rc = epm_adc_psoc_gpio_init(epm_adc, true);
-			if (rc)
+			if (rc) {
 				pr_err("GPIO init failed with %d\n", rc);
+				return -EINVAL;
+			}
 
 			if (copy_to_user((void __user *)arg, &rc,
 						sizeof(int)))
@@ -291,8 +299,10 @@ static long epm_adc_ioctl(struct file *file, unsigned int cmd,
 				return -EFAULT;
 
 			rc = epm_psoc_generic_request(epm_adc, &psoc_get_data);
-			if (rc)
+			if (rc) {
 				pr_err("Generic request failed\n");
+				return -EINVAL;
+			}
 
 			if (copy_to_user((void __user *)arg, &psoc_get_data,
 				sizeof(struct
@@ -307,20 +317,8 @@ static long epm_adc_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
-#ifdef CONFIG_COMPAT
-static long epm_adc_compat_ioctl_process(struct file *filep,
-				   unsigned int cmd, unsigned long arg)
-{
-	arg = (unsigned long)compat_ptr(arg);
-	return epm_adc_ioctl(filep, cmd, arg);
-}
-#endif	/* CONFIG_COMPAT */
-
 const struct file_operations epm_adc_fops = {
 	.unlocked_ioctl = epm_adc_ioctl,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl = epm_adc_compat_ioctl_process,
-#endif  /* CONFIG_COMPAT */
 };
 
 static int get_device_tree_data(struct spi_device *spi)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,6 +14,8 @@
 #define __MSM_FD_REGS_H__
 
 /* FD core registers */
+#define MSM_FD_VERSION (0x38)
+
 #define MSM_FD_CONTROL (0x00)
 #define MSM_FD_CONTROL_SRST   (1 << 0)
 #define MSM_FD_CONTROL_RUN    (1 << 1)
@@ -75,16 +77,9 @@
 #define MSM_FD_RESULT_ANGLE_SHIFT (0x000)
 #define MSM_FD_RESULT_POSE_MASK   (0x7)
 #define MSM_FD_RESULT_POSE_SHIFT  (0x9)
-#define MSM_FD_RESULT_POSE_FRONT           (0x1)
-#define MSM_FD_RESULT_POSE_RIGHT_DIAGONAL  (0x2)
-#define MSM_FD_RESULT_POSE_RIGHT           (0x3)
-#define MSM_FD_RESULT_POSE_LEFT_DIAGONAL   (0x4)
-#define MSM_FD_RESULT_POSE_LEFT            (0x5)
 
 /* FD misc registers */
 #define MSM_FD_MISC_HW_VERSION (0x00)
-#define MSM_FD_MISC_CGC_DISABLE (0x04)
-#define MSM_FD_HW_STOP          (0x08)
 
 #define MSM_FD_MISC_SW_RESET (0x10)
 #define MSM_FD_MISC_SW_RESET_SET (1 << 0)
@@ -118,18 +113,6 @@
 #define MSM_FD_MISC_VBIF_DONE_STATUS_WRITE (1 << 0)
 #define MSM_FD_MISC_VBIF_DONE_STATUS_READ  (1 << 1)
 
-#define MSM_FD_MISC_IRQ_MASK (0x50)
-#define MSM_FD_MISC_IRQ_MASK_HALT_REQ (1 << 1)
-#define MSM_FD_MISC_IRQ_MASK_CORE_IRQ (1 << 0)
-
-#define MSM_FD_MISC_IRQ_STATUS (0x54)
-#define MSM_FD_MISC_IRQ_STATUS_HALT_REQ (1 << 1)
-#define MSM_FD_MISC_IRQ_STATUS_CORE_IRQ (1 << 0)
-
-#define MSM_FD_MISC_IRQ_CLEAR (0x58)
-#define MSM_FD_MISC_IRQ_CLEAR_HALT (1 << 1)
-#define MSM_FD_MISC_IRQ_CLEAR_CORE (1 << 0)
-
 #define MSM_FD_MISC_TEST_BUS_SEL (0x40)
 #define MSM_FD_MISC_TEST_BUS_SEL_TEST_MODE_MASK  (0xF)
 #define MSM_FD_MISC_TEST_BUS_SEL_TEST_MODE_SHIFT (0)
@@ -152,9 +135,6 @@
 
 /* FD vbif registers */
 #define MSM_FD_VBIF_CLKON                   (0x04)
-#define MSM_FD_VBIF_QOS_OVERRIDE_EN         (0x10)
-#define MSM_FD_VBIF_QOS_OVERRIDE_REQPRI     (0x18)
-#define MSM_FD_VBIF_QOS_OVERRIDE_PRILVL     (0x1C)
 #define MSM_FD_VBIF_IN_RD_LIM_CONF0         (0xB0)
 #define MSM_FD_VBIF_IN_WR_LIM_CONF0         (0xC0)
 #define MSM_FD_VBIF_OUT_RD_LIM_CONF0        (0xD0)

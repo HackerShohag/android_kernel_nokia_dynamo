@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,9 +24,6 @@
 
 #include <soc/qcom/scm.h>
 
-#define CREATE_TRACE_POINTS
-#include <trace/events/scm.h>
-
 #define SCM_ENOMEM		-5
 #define SCM_EOPNOTSUPP		-4
 #define SCM_EINVAL_ADDR		-3
@@ -38,15 +35,8 @@
 
 static DEFINE_MUTEX(scm_lock);
 
-/*
- * MSM8996 V2 requires a lock to protect against
- * concurrent accesses between the limits management
- * driver and the clock controller
- */
-DEFINE_MUTEX(scm_lmh_lock);
-
 #define SCM_EBUSY_WAIT_MS 30
-#define SCM_EBUSY_MAX_RETRY 67
+#define SCM_EBUSY_MAX_RETRY 20
 
 #define N_EXT_SCM_ARGS 7
 #define FIRST_EXT_ARG_IDX 3
@@ -340,8 +330,6 @@ static int _scm_call_retry(u32 svc_id, u32 cmd_id, const void *cmd_buf,
 					resp_buf, resp_len, cmd, len);
 		if (ret == SCM_EBUSY)
 			msleep(SCM_EBUSY_WAIT_MS);
-		if (retry_count == 33)
-			pr_warn("scm: secure world has been busy for 1 second!\n");
 	} while (ret == SCM_EBUSY && (retry_count++ < SCM_EBUSY_MAX_RETRY));
 
 	if (ret == SCM_EBUSY)
@@ -651,9 +639,6 @@ int scm_call2(u32 fn_id, struct scm_desc *desc)
 	int ret, retry_count = 0;
 	u64 x0;
 
-	if (unlikely(!is_scm_armv8()))
-		return -ENODEV;
-
 	ret = allocate_extra_arg_buffer(desc, GFP_KERNEL);
 	if (ret)
 		return ret;
@@ -663,12 +648,7 @@ int scm_call2(u32 fn_id, struct scm_desc *desc)
 	do {
 		mutex_lock(&scm_lock);
 
-		if (SCM_SVC_ID(fn_id) == SCM_SVC_LMH)
-			mutex_lock(&scm_lmh_lock);
-
 		desc->ret[0] = desc->ret[1] = desc->ret[2] = 0;
-
-		trace_scm_call_start(x0, desc);
 
 		if (scm_version == SCM_ARMV8_64)
 			ret = __scm_call_armv8_64(x0, desc->arginfo,
@@ -682,18 +662,10 @@ int scm_call2(u32 fn_id, struct scm_desc *desc)
 						  desc->args[2], desc->x5,
 						  &desc->ret[0], &desc->ret[1],
 						  &desc->ret[2]);
-
-		trace_scm_call_end(desc);
-
-		if (SCM_SVC_ID(fn_id) == SCM_SVC_LMH)
-			mutex_unlock(&scm_lmh_lock);
-
 		mutex_unlock(&scm_lock);
 
 		if (ret == SCM_V2_EBUSY)
 			msleep(SCM_EBUSY_WAIT_MS);
-		if (retry_count == 33)
-			pr_warn("scm: secure world has been busy for 1 second!\n");
 	}  while (ret == SCM_V2_EBUSY && (retry_count++ < SCM_EBUSY_MAX_RETRY));
 
 	if (ret < 0)
@@ -722,14 +694,15 @@ int scm_call2_atomic(u32 fn_id, struct scm_desc *desc)
 	int ret;
 	u64 x0;
 
-	if (unlikely(!is_scm_armv8()))
-		return -ENODEV;
-
 	ret = allocate_extra_arg_buffer(desc, GFP_ATOMIC);
 	if (ret)
 		return ret;
 
 	x0 = fn_id | BIT(SMC_ATOMIC_SYSCALL) | scm_version_mask;
+
+	pr_debug("scm_call: func id %#llx, args: %#x, %#llx, %#llx, %#llx, %#llx\n",
+		x0, desc->arginfo, desc->args[0], desc->args[1],
+		desc->args[2], desc->x5);
 
 	if (scm_version == SCM_ARMV8_64)
 		ret = __scm_call_armv8_64(x0, desc->arginfo, desc->args[0],
@@ -742,8 +715,9 @@ int scm_call2_atomic(u32 fn_id, struct scm_desc *desc)
 					  desc->x5, &desc->ret[0],
 					  &desc->ret[1], &desc->ret[2]);
 	if (ret < 0)
-		pr_err("scm_call failed: func id %#llx, ret: %d, syscall returns: %#llx, %#llx, %#llx\n",
-			x0, ret, desc->ret[0],
+		pr_err("scm_call failed: func id %#llx, arginfo: %#x, args: %#llx, %#llx, %#llx, %#llx, ret: %d, syscall returns: %#llx, %#llx, %#llx\n",
+			x0, desc->arginfo, desc->args[0], desc->args[1],
+			desc->args[2], desc->x5, ret, desc->ret[0],
 			desc->ret[1], desc->ret[2]);
 
 	if (arglen > N_REGISTER_ARGS)
@@ -1195,39 +1169,3 @@ int scm_restore_sec_cfg(u32 device_id, u32 spare, int *scm_ret)
 	return 0;
 }
 EXPORT_SYMBOL(scm_restore_sec_cfg);
-
-/*
- * SCM call command ID to check secure mode
- * Return zero for secure device.
- * Return one for non secure device or secure
- * device with debug enabled device.
- */
-#define TZ_INFO_GET_SECURE_STATE	0x4
-bool scm_is_secure_device(void)
-{
-	struct scm_desc desc = {0};
-	int ret = 0, resp;
-
-	desc.args[0] = 0;
-	desc.arginfo = 0;
-	if (!is_scm_armv8()) {
-		ret = scm_call(SCM_SVC_INFO, TZ_INFO_GET_SECURE_STATE, NULL,
-			0, &resp, sizeof(resp));
-	} else {
-		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_INFO,
-				TZ_INFO_GET_SECURE_STATE),
-				&desc);
-		resp = desc.ret[0];
-	}
-
-	if (ret) {
-		pr_err("%s: SCM call failed\n", __func__);
-		return false;
-	}
-
-	if ((resp & BIT(0)) || (resp & BIT(2)))
-		return true;
-	else
-		return false;
-}
-EXPORT_SYMBOL(scm_is_secure_device);

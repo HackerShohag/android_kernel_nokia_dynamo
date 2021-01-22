@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,37 +29,12 @@ struct msm_get_bufs {
 	struct vb2_buffer *vb2_buf;
 	uint32_t session_id;
 	uint32_t stream_id;
-	uint32_t index;
 };
 
 struct msm_buf_mngr_device {
 	struct list_head buf_qhead;
 	spinlock_t buf_q_spinlock;
-	struct ion_client *ion_client;
 	struct msm_sd_subdev subdev;
 	struct msm_sd_req_vb2_q vb2_ops;
-	struct list_head cont_qhead;
-	struct mutex cont_mutex;
 };
-
-struct msm_buf_mngr_user_buf_cont_info {
-	struct list_head entry;
-	uint32_t sessid;
-	uint32_t strid;
-	uint32_t index;
-	int32_t main_fd;
-	struct msm_camera_user_buf_cont_t *paddr;
-	uint32_t cnt;
-	struct ion_handle *ion_handle;
-};
-
-/* kernel space functions*/
-struct msm_cam_buf_mgr_req_ops {
-	int (*msm_cam_buf_mgr_ops)(unsigned int cmd, void *argp);
-};
-
-/* API to register callback from client. This assumes cb_struct is allocated by
- * client.
- */
-int msm_cam_buf_mgr_register_ops(struct msm_cam_buf_mgr_req_ops *cb_struct);
 #endif

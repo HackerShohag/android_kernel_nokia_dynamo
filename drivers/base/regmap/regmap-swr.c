@@ -31,7 +31,6 @@ static int regmap_swr_gather_write(void *context,
 	size_t addr_bytes, val_bytes;
 	int i, ret = 0;
 	u16 reg_addr = 0;
-	u8 *value;
 
 	if (swr == NULL) {
 		dev_err(dev, "%s: swr device is NULL\n", __func__);
@@ -51,11 +50,12 @@ static int regmap_swr_gather_write(void *context,
 	val_bytes = map->format.val_bytes;
 	/* val_len = val_bytes * val_count */
 	for (i = 0; i < (val_len / val_bytes); i++) {
-		value = (u8 *)val + (val_bytes * i);
-		ret = swr_write(swr, swr->dev_num, (reg_addr + i), value);
+		reg_addr = reg_addr + i;
+		val = (u8 *)val + (val_bytes * i);
+		ret = swr_write(swr, swr->dev_num, reg_addr, val);
 		if (ret < 0) {
 			dev_err(dev, "%s: write reg 0x%x failed, err %d\n",
-				__func__, (reg_addr + i), ret);
+				__func__, reg_addr, ret);
 			break;
 		}
 	}
@@ -68,35 +68,26 @@ static int regmap_swr_raw_multi_reg_write(void *context, const void *data,
 	struct device *dev = context;
 	struct swr_device *swr = to_swr_device(dev);
 	struct regmap *map = dev_get_regmap(dev, NULL);
-	size_t addr_bytes;
-	size_t val_bytes;
-	size_t pad_bytes;
-	size_t num_regs;
+	size_t addr_bytes, val_bytes, pad_bytes, num_regs;
 	int i = 0;
 	int ret = 0;
 	u16 *reg;
 	u8 *val;
 	u8 *buf;
 
+        if (map == NULL) {
+                dev_err(dev, "%s: regmap is NULL\n", __func__);
+                return -EINVAL;
+        }
+        addr_bytes = map->format.reg_bytes;
+        val_bytes = map->format.val_bytes;
+        pad_bytes = map->format.pad_bytes;
+        num_regs = (count / (addr_bytes + val_bytes + pad_bytes));
+
 	if (swr == NULL) {
 		dev_err(dev, "%s: swr device is NULL\n", __func__);
 		return -EINVAL;
 	}
-
-	if (map == NULL) {
-		dev_err(dev, "%s: regmap is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	addr_bytes = map->format.reg_bytes;
-	val_bytes = map->format.val_bytes;
-	pad_bytes = map->format.pad_bytes;
-
-	if (addr_bytes + val_bytes + pad_bytes == 0) {
-		dev_err(dev, "%s: sum of addr, value and pad is 0\n", __func__);
-		return -EINVAL;
-	}
-	num_regs = count / (addr_bytes + val_bytes + pad_bytes);
 
 	reg = kcalloc(num_regs, sizeof(u16), GFP_KERNEL);
 	if (!reg)

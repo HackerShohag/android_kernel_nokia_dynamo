@@ -33,8 +33,10 @@ struct snd_seq_fifo *snd_seq_fifo_new(int poolsize)
 	struct snd_seq_fifo *f;
 
 	f = kzalloc(sizeof(*f), GFP_KERNEL);
-	if (!f)
+	if (f == NULL) {
+		snd_printd("malloc failed for snd_seq_fifo_new() \n");
 		return NULL;
+	}
 
 	f->pool = snd_seq_pool_new(poolsize);
 	if (f->pool == NULL) {
@@ -69,9 +71,6 @@ void snd_seq_fifo_delete(struct snd_seq_fifo **fifo)
 	if (snd_BUG_ON(!f))
 		return;
 	*fifo = NULL;
-
-	if (f->pool)
-		snd_seq_pool_mark_closing(f->pool);
 
 	snd_seq_fifo_clear(f);
 
@@ -125,7 +124,7 @@ int snd_seq_fifo_event_in(struct snd_seq_fifo *f,
 	snd_use_lock_use(&f->use_lock);
 	err = snd_seq_event_dup(f->pool, event, &cell, 1, NULL); /* always non-blocking */
 	if (err < 0) {
-		if ((err == -ENOMEM) || (err == -EAGAIN))
+		if (err == -ENOMEM)
 			atomic_inc(&f->overflow);
 		snd_use_lock_free(&f->use_lock);
 		return err;
@@ -261,10 +260,6 @@ int snd_seq_fifo_resize(struct snd_seq_fifo *f, int poolsize)
 	f->cells = 0;
 	/* NOTE: overflow flag is not cleared */
 	spin_unlock_irqrestore(&f->lock, flags);
-
-	/* close the old pool and wait until all users are gone */
-	snd_seq_pool_mark_closing(oldpool);
-	snd_use_lock_sync(&f->use_lock);
 
 	/* release cells in old pool */
 	for (cell = oldhead; cell; cell = next) {

@@ -19,6 +19,7 @@
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
+#include <linux/mmc/mmc.h>
 
 #include "core.h"
 #include "mmc_ops.h"
@@ -32,26 +33,6 @@ module_param(fail_request, charp, 0);
 #endif /* CONFIG_FAIL_MMC_REQUEST */
 
 /* The debugfs functions are optimized away when CONFIG_DEBUG_FS isn't set. */
-static int mmc_ring_buffer_show(struct seq_file *s, void *data)
-{
-	struct mmc_host *mmc = s->private;
-
-	mmc_dump_trace_buffer(mmc, s);
-	return 0;
-}
-
-static int mmc_ring_buffer_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, mmc_ring_buffer_show, inode->i_private);
-}
-
-static const struct file_operations mmc_ring_buffer_fops = {
-	.open		= mmc_ring_buffer_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 static int mmc_ios_show(struct seq_file *s, void *data)
 {
 	static const char *vdd_str[] = {
@@ -156,14 +137,8 @@ static int mmc_ios_show(struct seq_file *s, void *data)
 	case MMC_TIMING_UHS_DDR50:
 		str = "sd uhs DDR50";
 		break;
-	case MMC_TIMING_MMC_DDR52:
-		str = "mmc DDR52";
-		break;
 	case MMC_TIMING_MMC_HS200:
-		str = "mmc HS200";
-		break;
-	case MMC_TIMING_MMC_HS400:
-		str = "mmc HS400";
+		str = "mmc high-speed SDR200";
 		break;
 	default:
 		str = "invalid";
@@ -219,53 +194,16 @@ static int mmc_clock_opt_set(void *data, u64 val)
 	if (val > host->f_max)
 		return -EINVAL;
 
+	mmc_rpm_hold(host, &host->class_dev);
 	mmc_claim_host(host);
 	mmc_set_clock(host, (unsigned int) val);
 	mmc_release_host(host);
+	mmc_rpm_release(host, &host->class_dev);
 
 	return 0;
 }
 
 DEFINE_SIMPLE_ATTRIBUTE(mmc_clock_fops, mmc_clock_opt_get, mmc_clock_opt_set,
-	"%llu\n");
-
-#include <linux/delay.h>
-
-static int mmc_scale_get(void *data, u64 *val)
-{
-	struct mmc_host *host = data;
-
-	*val = host->clk_scaling.curr_freq;
-
-	return 0;
-}
-
-static int mmc_scale_set(void *data, u64 val)
-{
-	int err = 0;
-	struct mmc_host *host = data;
-
-	mmc_claim_host(host);
-	mmc_host_clk_hold(host);
-
-	/* change frequency from sysfs manually */
-	err = mmc_clk_update_freq(host, val, host->clk_scaling.state);
-	if (err == -EAGAIN)
-		err = 0;
-	else if (err)
-		pr_err("%s: clock scale to %llu failed with error %d\n",
-			mmc_hostname(host), val, err);
-	else
-		pr_debug("%s: clock change to %llu finished successfully (%s)\n",
-			mmc_hostname(host), val, current->comm);
-
-	mmc_host_clk_release(host);
-	mmc_release_host(host);
-
-	return err;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(mmc_scale_fops, mmc_scale_get, mmc_scale_set,
 	"%llu\n");
 
 static int mmc_max_clock_get(void *data, u64 *val)
@@ -290,6 +228,7 @@ static int mmc_max_clock_set(void *data, u64 val)
 	if (!host || (val < host->f_min))
 		goto out;
 
+	mmc_rpm_hold(host, &host->class_dev);
 	mmc_claim_host(host);
 	if (host->bus_ops && host->bus_ops->change_bus_speed) {
 		old_freq = host->f_max;
@@ -301,54 +240,13 @@ static int mmc_max_clock_set(void *data, u64 val)
 			host->f_max = old_freq;
 	}
 	mmc_release_host(host);
+	mmc_rpm_release(host, &host->class_dev);
 out:
 	return err;
 }
 
 DEFINE_SIMPLE_ATTRIBUTE(mmc_max_clock_fops, mmc_max_clock_get,
 		mmc_max_clock_set, "%llu\n");
-
-static int mmc_force_err_set(void *data, u64 val)
-{
-	struct mmc_host *host = data;
-
-	if (host && host->ops && host->ops->force_err_irq) {
-		mmc_host_clk_hold(host);
-		host->ops->force_err_irq(host, val);
-		mmc_host_clk_release(host);
-	}
-
-	return 0;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(mmc_force_err_fops, NULL, mmc_force_err_set, "%llu\n");
-
-static int mmc_err_state_get(void *data, u64 *val)
-{
-	struct mmc_host *host = data;
-
-	if (!host)
-		return -EINVAL;
-
-	*val = host->err_occurred ? 1 : 0;
-
-	return 0;
-}
-
-static int mmc_err_state_clear(void *data, u64 val)
-{
-	struct mmc_host *host = data;
-
-	if (!host)
-		return -EINVAL;
-
-	host->err_occurred = false;
-
-	return 0;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(mmc_err_state, mmc_err_state_get,
-		mmc_err_state_clear, "%llu\n");
 
 void mmc_add_host_debugfs(struct mmc_host *host)
 {
@@ -376,30 +274,6 @@ void mmc_add_host_debugfs(struct mmc_host *host)
 		&mmc_max_clock_fops))
 		goto err_node;
 
-	if (!debugfs_create_file("scale", S_IRUSR | S_IWUSR, root, host,
-		&mmc_scale_fops))
-		goto err_node;
-
-	if (!debugfs_create_bool("skip_clk_scale_freq_update",
-		S_IRUSR | S_IWUSR, root,
-		&host->clk_scaling.skip_clk_scale_freq_update))
-		goto err_node;
-
-	if (!debugfs_create_bool("cmdq_task_history",
-		S_IRUSR | S_IWUSR, root,
-		&host->cmdq_thist_enabled))
-		goto err_node;
-
-	if (!debugfs_create_file("err_state", S_IRUSR | S_IWUSR, root, host,
-		&mmc_err_state))
-		goto err_node;
-
-#ifdef CONFIG_MMC_RING_BUFFER
-	if (!debugfs_create_file("ring_buffer", S_IRUSR,
-				root, host, &mmc_ring_buffer_fops))
-		goto err_node;
-#endif
-
 #ifdef CONFIG_MMC_CLKGATE
 	if (!debugfs_create_u32("clk_delay", (S_IRUSR | S_IWUSR),
 				root, &host->clk_delay))
@@ -414,10 +288,6 @@ void mmc_add_host_debugfs(struct mmc_host *host)
 					     &host->fail_mmc_request)))
 		goto err_node;
 #endif
-	if (!debugfs_create_file("force_error", S_IWUSR, root, host,
-		&mmc_force_err_fops))
-		goto err_node;
-
 	return;
 
 err_node:
@@ -438,28 +308,15 @@ static int mmc_dbg_card_status_get(void *data, u64 *val)
 	u32		status;
 	int		ret;
 
-	mmc_get_card(card);
-	if (mmc_card_cmdq(card)) {
-		ret = mmc_cmdq_halt_on_empty_queue(card->host);
-		if (ret) {
-			pr_err("%s: halt failed while doing %s err (%d)\n",
-					mmc_hostname(card->host), __func__,
-					ret);
-			goto out;
-		}
-	}
+	mmc_rpm_hold(card->host, &card->dev);
+	mmc_claim_host(card->host);
 
 	ret = mmc_send_status(data, &status);
 	if (!ret)
 		*val = status;
 
-	if (mmc_card_cmdq(card)) {
-		if (mmc_cmdq_halt(card->host, false))
-			pr_err("%s: %s: cmdq unhalt failed\n",
-			       mmc_hostname(card->host), __func__);
-	}
-out:
-	mmc_put_card(card);
+	mmc_release_host(card->host);
+	mmc_rpm_release(card->host, &card->dev);
 
 	return ret;
 }
@@ -483,21 +340,14 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 	ext_csd = kmalloc(512, GFP_KERNEL);
 	if (!ext_csd) {
 		err = -ENOMEM;
-		goto out_free_halt;
+		goto out_free;
 	}
 
-	mmc_get_card(card);
-	if (mmc_card_cmdq(card)) {
-		err = mmc_cmdq_halt_on_empty_queue(card->host);
-		if (err) {
-			pr_err("%s: halt failed while doing %s err (%d)\n",
-					mmc_hostname(card->host), __func__,
-					err);
-			mmc_put_card(card);
-			goto out_free_halt;
-		}
-	}
+	mmc_rpm_hold(card->host, &card->dev);
+	mmc_claim_host(card->host);
 	err = mmc_send_ext_csd(card, ext_csd);
+	mmc_release_host(card->host);
+	mmc_rpm_release(card->host, &card->dev);
 	if (err)
 		goto out_free;
 
@@ -507,25 +357,10 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 	BUG_ON(n != EXT_CSD_STR_LEN);
 
 	filp->private_data = buf;
-
-	if (mmc_card_cmdq(card)) {
-		if (mmc_cmdq_halt(card->host, false))
-			pr_err("%s: %s: cmdq unhalt failed\n",
-			       mmc_hostname(card->host), __func__);
-	}
-
-	mmc_put_card(card);
 	kfree(ext_csd);
 	return 0;
 
 out_free:
-	if (mmc_card_cmdq(card)) {
-		if (mmc_cmdq_halt(card->host, false))
-			pr_err("%s: %s: cmdq unhalt failed\n",
-			       mmc_hostname(card->host), __func__);
-	}
-	mmc_put_card(card);
-out_free_halt:
 	kfree(buf);
 	kfree(ext_csd);
 	return err;
@@ -568,10 +403,9 @@ static ssize_t mmc_wr_pack_stats_read(struct file *filp, char __user *ubuf,
 {
 	struct mmc_card *card = filp->private_data;
 	struct mmc_wr_pack_stats *pack_stats;
-	int i, ret = 0;
+	int i;
 	int max_num_of_packed_reqs = 0;
-	char *temp_buf, *temp_ubuf;
-	size_t tubuf_cnt = 0;
+	char *temp_buf;
 
 	if (!card)
 		return cnt;
@@ -597,24 +431,15 @@ static ssize_t mmc_wr_pack_stats_read(struct file *filp, char __user *ubuf,
 
 	max_num_of_packed_reqs = card->ext_csd.max_packed_writes;
 
-	if (cnt <= (strlen_user(ubuf) + 1))
-		goto exit;
-
-	temp_buf = kzalloc(TEMP_BUF_SIZE, GFP_KERNEL);
+	temp_buf = kmalloc(TEMP_BUF_SIZE, GFP_KERNEL);
 	if (!temp_buf)
 		goto exit;
-
-	tubuf_cnt = cnt - strlen_user(ubuf) - 1;
-
-	temp_ubuf = kzalloc(tubuf_cnt, GFP_KERNEL);
-	if (!temp_ubuf)
-		goto cleanup;
 
 	spin_lock(&pack_stats->lock);
 
 	snprintf(temp_buf, TEMP_BUF_SIZE, "%s: write packing statistics:\n",
 		mmc_hostname(card->host));
-	strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+	strlcat(ubuf, temp_buf, cnt);
 
 	for (i = 1 ; i <= max_num_of_packed_reqs ; ++i) {
 		if (pack_stats->packing_events[i]) {
@@ -622,63 +447,63 @@ static ssize_t mmc_wr_pack_stats_read(struct file *filp, char __user *ubuf,
 				 "%s: Packed %d reqs - %d times\n",
 				mmc_hostname(card->host), i,
 				pack_stats->packing_events[i]);
-			strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+			strlcat(ubuf, temp_buf, cnt);
 		}
 	}
 
 	snprintf(temp_buf, TEMP_BUF_SIZE,
 		 "%s: stopped packing due to the following reasons:\n",
 		 mmc_hostname(card->host));
-	strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+	strlcat(ubuf, temp_buf, cnt);
 
 	if (pack_stats->pack_stop_reason[EXCEEDS_SEGMENTS]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: exceed max num of segments\n",
 			 mmc_hostname(card->host),
 			 pack_stats->pack_stop_reason[EXCEEDS_SEGMENTS]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[EXCEEDS_SECTORS]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: exceed max num of sectors\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[EXCEEDS_SECTORS]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[WRONG_DATA_DIR]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: wrong data direction\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[WRONG_DATA_DIR]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[FLUSH_OR_DISCARD]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: flush or discard\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[FLUSH_OR_DISCARD]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[EMPTY_QUEUE]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: empty queue\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[EMPTY_QUEUE]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[REL_WRITE]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: rel write\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[REL_WRITE]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[THRESHOLD]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: Threshold\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[THRESHOLD]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 
 	if (pack_stats->pack_stop_reason[LARGE_SEC_ALIGN]) {
@@ -686,36 +511,25 @@ static ssize_t mmc_wr_pack_stats_read(struct file *filp, char __user *ubuf,
 			 "%s: %d times: Large sector alignment\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[LARGE_SEC_ALIGN]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[RANDOM]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: random request\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[RANDOM]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
 	if (pack_stats->pack_stop_reason[FUA]) {
 		snprintf(temp_buf, TEMP_BUF_SIZE,
 			 "%s: %d times: fua request\n",
 			mmc_hostname(card->host),
 			pack_stats->pack_stop_reason[FUA]);
-		strlcat(temp_ubuf, temp_buf, tubuf_cnt);
+		strlcat(ubuf, temp_buf, cnt);
 	}
-	if (strlen_user(ubuf) < cnt - strlen(temp_ubuf))
-		ret = copy_to_user((ubuf + strlen_user(ubuf)),
-				temp_ubuf, tubuf_cnt);
-	else
-		ret = -EFAULT;
-	if (ret)
-		pr_err("%s: %s: Copy to userspace failed: %s\n",
-				mmc_hostname(card->host), __func__, ubuf);
 
 	spin_unlock(&pack_stats->lock);
 
-	kfree(temp_ubuf);
-
-cleanup:
 	kfree(temp_buf);
 
 	pr_info("%s", ubuf);
@@ -760,43 +574,81 @@ static const struct file_operations mmc_dbg_wr_pack_stats_fops = {
 	.write		= mmc_wr_pack_stats_write,
 };
 
-static int mmc_bkops_stats_read(struct seq_file *file, void *data)
+static int mmc_bkops_stats_open(struct inode *inode, struct file *filp)
 {
-	struct mmc_card *card = file->private;
-	struct mmc_bkops_stats *stats;
+	struct mmc_card *card = inode->i_private;
+
+	filp->private_data = card;
+
+	card->bkops_info.bkops_stats.print_stats = 1;
+	return 0;
+}
+
+static ssize_t mmc_bkops_stats_read(struct file *filp, char __user *ubuf,
+				     size_t cnt, loff_t *ppos)
+{
+	struct mmc_card *card = filp->private_data;
+	struct mmc_bkops_stats *bkops_stats;
 	int i;
+	char *temp_buf;
 
 	if (!card)
-		return -EINVAL;
+		return cnt;
 
-	stats = &card->bkops.stats;
+	if (!access_ok(VERIFY_WRITE, ubuf, cnt))
+		return cnt;
 
-	if (!stats->enabled) {
+	bkops_stats = &card->bkops_info.bkops_stats;
+
+	if (!bkops_stats->print_stats)
+		return 0;
+
+	if (!bkops_stats->enabled) {
 		pr_info("%s: bkops statistics are disabled\n",
 			 mmc_hostname(card->host));
 		goto exit;
 	}
 
-	spin_lock(&stats->lock);
+	temp_buf = kmalloc(TEMP_BUF_SIZE, GFP_KERNEL);
+	if (!temp_buf)
+		goto exit;
 
-	seq_printf(file, "%s: bkops statistics:\n",
-			mmc_hostname(card->host));
-	seq_printf(file, "%s: BKOPS: sent START_BKOPS to device: %u\n",
-			mmc_hostname(card->host), stats->manual_start);
-	seq_printf(file, "%s: BKOPS: stopped due to HPI: %u\n",
-			mmc_hostname(card->host), stats->hpi);
-	seq_printf(file, "%s: BKOPS: sent AUTO_EN set to 1: %u\n",
-			mmc_hostname(card->host), stats->auto_start);
-	seq_printf(file, "%s: BKOPS: sent AUTO_EN set to 0: %u\n",
-			mmc_hostname(card->host), stats->auto_stop);
+	spin_lock(&bkops_stats->lock);
 
-	for (i = 0 ; i < MMC_BKOPS_NUM_SEVERITY_LEVELS ; ++i)
-		seq_printf(file, "%s: BKOPS: due to level %d: %u\n",
-			 mmc_hostname(card->host), i, stats->level[i]);
+	memset(ubuf, 0, cnt);
 
-	spin_unlock(&stats->lock);
+	snprintf(temp_buf, TEMP_BUF_SIZE, "%s: bkops statistics:\n",
+		mmc_hostname(card->host));
+	strlcat(ubuf, temp_buf, cnt);
+
+	for (i = 0 ; i < BKOPS_NUM_OF_SEVERITY_LEVELS ; ++i) {
+		snprintf(temp_buf, TEMP_BUF_SIZE,
+			 "%s: BKOPS: due to level %d: %u\n",
+		 mmc_hostname(card->host), i, bkops_stats->bkops_level[i]);
+		strlcat(ubuf, temp_buf, cnt);
+	}
+
+	snprintf(temp_buf, TEMP_BUF_SIZE,
+		 "%s: BKOPS: stopped due to HPI: %u\n",
+		 mmc_hostname(card->host), bkops_stats->hpi);
+	strlcat(ubuf, temp_buf, cnt);
+
+	snprintf(temp_buf, TEMP_BUF_SIZE,
+		 "%s: BKOPS: how many time host was suspended: %u\n",
+		 mmc_hostname(card->host), bkops_stats->suspend);
+	strlcat(ubuf, temp_buf, cnt);
+
+	spin_unlock(&bkops_stats->lock);
+
+	kfree(temp_buf);
+
+	pr_info("%s", ubuf);
 
 exit:
+	if (bkops_stats->print_stats == 1) {
+		bkops_stats->print_stats = 0;
+		return strnlen(ubuf, cnt);
+	}
 
 	return 0;
 }
@@ -805,41 +657,33 @@ static ssize_t mmc_bkops_stats_write(struct file *filp,
 				      const char __user *ubuf, size_t cnt,
 				      loff_t *ppos)
 {
-	struct mmc_card *card = filp->f_mapping->host->i_private;
+	struct mmc_card *card = filp->private_data;
 	int value;
-	struct mmc_bkops_stats *stats;
-	int err;
+	struct mmc_bkops_stats *bkops_stats;
 
 	if (!card)
 		return cnt;
 
-	stats = &card->bkops.stats;
+	if (!access_ok(VERIFY_READ, ubuf, cnt))
+		return cnt;
 
-	err = kstrtoint_from_user(ubuf, cnt, 0, &value);
-	if (err) {
-		pr_err("%s: %s: error parsing input from user (%d)\n",
-				mmc_hostname(card->host), __func__, err);
-		return err;
-	}
+	bkops_stats = &card->bkops_info.bkops_stats;
+
+	sscanf(ubuf, "%d", &value);
 	if (value) {
 		mmc_blk_init_bkops_statistics(card);
 	} else {
-		spin_lock(&stats->lock);
-		stats->enabled = false;
-		spin_unlock(&stats->lock);
+		spin_lock(&bkops_stats->lock);
+		bkops_stats->enabled = false;
+		spin_unlock(&bkops_stats->lock);
 	}
 
 	return cnt;
 }
 
-static int mmc_bkops_stats_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, mmc_bkops_stats_read, inode->i_private);
-}
-
 static const struct file_operations mmc_dbg_bkops_stats_fops = {
 	.open		= mmc_bkops_stats_open,
-	.read		= seq_read,
+	.read		= mmc_bkops_stats_read,
 	.write		= mmc_bkops_stats_write,
 };
 
@@ -882,8 +726,7 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 			goto err;
 
 	if (mmc_card_mmc(card) && (card->ext_csd.rev >= 5) &&
-	    (mmc_card_configured_auto_bkops(card) ||
-	     mmc_card_configured_manual_bkops(card)))
+	    (mmc_card_get_bkops_en_manual(card)))
 		if (!debugfs_create_file("bkops_stats", S_IRUSR, root, card,
 					 &mmc_dbg_bkops_stats_fops))
 			goto err;

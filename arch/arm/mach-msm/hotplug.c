@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2002 ARM Ltd.
  *  All Rights Reserved
- *  Copyright (c) 2011-2014, 2016 The Linux Foundation. All rights reserved.
+ *  Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -123,11 +123,6 @@ int msm_platform_secondary_init(unsigned int cpu)
 
 	if (!(*warm_boot)) {
 		*warm_boot = 1;
-		/*
-		 * All CPU0 boots are considered warm boots (restore needed)
-		 * since CPU0 is the system boot CPU and never cold-booted
-		 * by the kernel.
-		 */
 		if (cpu)
 			return 0;
 	}

@@ -25,7 +25,9 @@
  *     GNU General Public License for more details.
  *
  *     You should have received a copy of the GNU General Public License
- *     along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *     along with this program; if not, write to the Free Software
+ *     Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ *     MA 02111-1307 USA
  *
  *     Linux-IrDA now supports four different types of IrDA sockets:
  *
@@ -674,6 +676,7 @@ static int irda_discover_daddr_and_lsap_sel(struct irda_sock *self, char *name)
 			self->daddr = DEV_ADDR_ANY;
 			kfree(discoveries);
 			return -EHOSTUNREACH;
+			break;
 		}
 	}
 	/* Cleanup our copy of the discovery log */
@@ -1036,11 +1039,8 @@ static int irda_connect(struct socket *sock, struct sockaddr *uaddr,
 	}
 
 	/* Check if we have opened a local TSAP */
-	if (!self->tsap) {
-		err = irda_open_tsap(self, LSAP_ANY, addr->sir_name);
-		if (err)
-			goto out;
-	}
+	if (!self->tsap)
+		irda_open_tsap(self, LSAP_ANY, addr->sir_name);
 
 	/* Move to connecting socket, start sending Connect Requests */
 	sock->state = SS_CONNECTING;
@@ -1067,6 +1067,8 @@ static int irda_connect(struct socket *sock, struct sockaddr *uaddr,
 
 	if (sk->sk_state != TCP_ESTABLISHED) {
 		sock->state = SS_UNCONNECTED;
+		if (sk->sk_prot->disconnect(sk, flags))
+			sock->state = SS_DISCONNECTING;
 		err = sock_error(sk);
 		if (!err)
 			err = -ECONNRESET;
@@ -1102,9 +1104,6 @@ static int irda_create(struct net *net, struct socket *sock, int protocol,
 	struct irda_sock *self;
 
 	IRDA_DEBUG(2, "%s()\n", __func__);
-
-	if (protocol < 0 || protocol > SK_PROTOCOL_MAX)
-		return -EINVAL;
 
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
@@ -1655,7 +1654,7 @@ static int irda_sendmsg_ultra(struct kiocb *iocb, struct socket *sock,
 
 	/* Check if an address was specified with sendto. Jean II */
 	if (msg->msg_name) {
-		DECLARE_SOCKADDR(struct sockaddr_irda *, addr, msg->msg_name);
+		struct sockaddr_irda *addr = (struct sockaddr_irda *) msg->msg_name;
 		err = -EINVAL;
 		/* Check address, extract pid. Jean II */
 		if (msg->msg_namelen < sizeof(*addr))
@@ -2251,7 +2250,7 @@ static int irda_getsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 	struct irda_sock *self = irda_sk(sk);
-	struct irda_device_list list = { 0 };
+	struct irda_device_list list;
 	struct irda_device_info *discoveries;
 	struct irda_ias_set *	ias_opt;	/* IAS get/query params */
 	struct ias_object *	ias_obj;	/* Object in IAS */
@@ -2560,8 +2559,9 @@ bed:
 				  jiffies + msecs_to_jiffies(val));
 
 			/* Wait for IR-LMP to call us back */
-			err = __wait_event_interruptible(self->query_wait,
-			      (self->cachedaddr != 0 || self->errno == -ETIME));
+			__wait_event_interruptible(self->query_wait,
+			      (self->cachedaddr != 0 || self->errno == -ETIME),
+						   err);
 
 			/* If watchdog is still activated, kill it! */
 			del_timer(&(self->watchdog));

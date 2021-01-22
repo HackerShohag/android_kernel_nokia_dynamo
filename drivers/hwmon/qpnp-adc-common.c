@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,17 +30,11 @@
 #include <linux/qpnp/qpnp-adc.h>
 #include <linux/platform_device.h>
 
+/* Min ADC code represets 0V */
+#define QPNP_VADC_MIN_ADC_CODE			0x6000
+/* Max ADC code represents full-scale range of 1.8V */
+#define QPNP_VADC_MAX_ADC_CODE			0xA800
 #define KELVINMIL_DEGMIL	273160
-#define QPNP_VADC_LDO_VOLTAGE_MIN	1800000
-#define QPNP_VADC_LDO_VOLTAGE_MAX	1800000
-#define QPNP_VADC_OK_VOLTAGE_MIN	1000000
-#define QPNP_VADC_OK_VOLTAGE_MAX	1000000
-#define PMI_CHG_SCALE_1		-138890
-#define PMI_CHG_SCALE_2		391750000000
-#define QPNP_VADC_HC_VREF_CODE		0x4000
-#define QPNP_VADC_HC_VDD_REFERENCE_MV	1875
-/* Clamp negative ADC code to 0 */
-#define QPNP_VADC_HC_MAX_CODE		0x7FFF
 
 /* Units for temperature below (on x axis) is in 0.1DegC as
    required by the battery driver. Note the resolution used
@@ -356,38 +350,6 @@ static const struct qpnp_vadc_map_pt adcmap_qrd_skuh_btm_threshold[] = {
 	{880,	520},
 };
 
-static const struct qpnp_vadc_map_pt adcmap_qrd_skut1_btm_threshold[] = {
-	{-400,	1759},
-	{-350,	1742},
-	{-300,	1720},
-	{-250,	1691},
-	{-200,	1654},
-	{-150,	1619},
-	{-100,	1556},
-	{-50,	1493},
-	{0,	1422},
-	{50,	1345},
-	{100,	1264},
-	{150,	1180},
-	{200,	1097},
-	{250,	1017},
-	{300,	942},
-	{350,	873},
-	{400,	810},
-	{450,	754},
-	{500,	706},
-	{550,	664},
-	{600,	627},
-	{650,	596},
-	{700,	570},
-	{750,	547},
-	{800,	528},
-	{850,	512},
-	{900,	499},
-	{950,	487},
-	{1000,	477},
-};
-
 static const struct qpnp_vadc_map_pt adcmap_qrd_skuc_btm_threshold[] = {
 	{-200,	1539},
 	{-180,	1515},
@@ -494,6 +456,60 @@ static const struct qpnp_vadc_map_pt adcmap_qrd_skue_btm_threshold[] = {
 	{760,	407},
 	{780,	402},
 	{800,	398},
+};
+
+static const struct qpnp_vadc_map_pt adcmap_qrd_skul_btm_threshold[] = {
+	{-200,	1515},
+	{-180,	1492},
+	{-160,	1467},
+	{-140,	1441},
+	{-120,	1413},
+	{-100,	1386},
+	{-80,	1357},
+	{-60,	1327},
+	{-40,	1296},
+	{-20,	1264},
+	{0,	1232},
+	{20,	1200},
+	{40,	1167},
+	{60,	1134},
+	{80,	1100},
+	{100,	1050},
+	{120,	1034},
+	{140,	1000},
+	{160,	967},
+	{180,	935},
+	{200,	903},
+	{220,	871},
+	{240,	840},
+	{260,	810},
+	{280,	780},
+	{300,	751},
+	{320,	723},
+	{340,	696},
+	{360,	670},
+	{380,	645},
+	{400,	620},
+	{420,	597},
+	{440,	574},
+	{460,	552},
+	{480,	531},
+	{500,	512},
+	{520,	492},
+	{540,	474},
+	{560,	457},
+	{580,	440},
+	{600,	425},
+	{620,	410},
+	{640,	396},
+	{660,	383},
+	{680,	370},
+	{700,	358},
+	{720,	347},
+	{740,	336},
+	{760,	326},
+	{780,	311},
+	{800,	307},
 };
 
 /* Voltage to temperature */
@@ -696,47 +712,6 @@ static const struct qpnp_vadc_map_pt adcmap_ncp03wf683[] = {
 	{30,	125}
 };
 
-/*
- * Voltage to temperature table for 100k pull up for NTCG104EF104 with
- * 1.875V reference.
- */
-static const struct qpnp_vadc_map_pt adcmap_100k_104ef_104fb_1875_vref[] = {
-	{ 1831,	-40 },
-	{ 1814,	-35 },
-	{ 1791,	-30 },
-	{ 1761,	-25 },
-	{ 1723,	-20 },
-	{ 1675,	-15 },
-	{ 1616,	-10 },
-	{ 1545,	-5 },
-	{ 1463,	0 },
-	{ 1370,	5 },
-	{ 1268,	10 },
-	{ 1160,	15 },
-	{ 1049,	20 },
-	{ 937,	25 },
-	{ 828,	30 },
-	{ 726,	35 },
-	{ 630,	40 },
-	{ 544,	45 },
-	{ 467,	50 },
-	{ 399,	55 },
-	{ 340,	60 },
-	{ 290,	65 },
-	{ 247,	70 },
-	{ 209,	75 },
-	{ 179,	80 },
-	{ 153,	85 },
-	{ 130,	90 },
-	{ 112,	95 },
-	{ 96,	100 },
-	{ 82,	105 },
-	{ 71,	110 },
-	{ 62,	115 },
-	{ 53,	120 },
-	{ 46,	125 },
-};
-
 // for FAO EVB {{
 static const struct qpnp_vadc_map_pt adcmap_FaoUseMcs_batt[] = {
 	{-400, 1800}, // add for -128
@@ -918,23 +893,30 @@ static int32_t qpnp_adc_map_temp_voltage(const struct qpnp_vadc_map_pt *pts,
 	return 0;
 }
 
-static void qpnp_adc_scale_with_calib_param(int32_t adc_code,
+static int64_t qpnp_adc_scale_ratiometric_calib(int32_t adc_code,
 		const struct qpnp_adc_properties *adc_properties,
-		const struct qpnp_vadc_chan_properties *chan_properties,
-		int64_t *scale_voltage)
+		const struct qpnp_vadc_chan_properties *chan_properties)
 {
-	*scale_voltage = (adc_code -
-		chan_properties->adc_graph[chan_properties->calib_type].adc_gnd)
-		* chan_properties->adc_graph[chan_properties->calib_type].dx;
-	*scale_voltage = div64_s64(*scale_voltage,
-		chan_properties->adc_graph[chan_properties->calib_type].dy);
+	int64_t adc_voltage = 0;
+	bool negative_offset = 0;
 
-	if (chan_properties->calib_type == CALIB_ABSOLUTE)
-		*scale_voltage +=
-		chan_properties->adc_graph[chan_properties->calib_type].dx;
+	if (!chan_properties || !chan_properties->offset_gain_numerator ||
+		!chan_properties->offset_gain_denominator || !adc_properties)
+		return -EINVAL;
 
-	if (*scale_voltage < 0)
-		*scale_voltage = 0;
+	adc_voltage = (adc_code -
+		chan_properties->adc_graph[CALIB_RATIOMETRIC].adc_gnd)
+		* adc_properties->adc_vdd_reference;
+	if (adc_voltage < 0) {
+		negative_offset = 1;
+		adc_voltage = -adc_voltage;
+	}
+	do_div(adc_voltage,
+		chan_properties->adc_graph[CALIB_RATIOMETRIC].dy);
+	if (negative_offset)
+		adc_voltage = -adc_voltage;
+
+	return adc_voltage;
 }
 
 int32_t qpnp_adc_scale_pmic_therm(struct qpnp_vadc_chip *vadc,
@@ -944,27 +926,26 @@ int32_t qpnp_adc_scale_pmic_therm(struct qpnp_vadc_chip *vadc,
 		struct qpnp_vadc_result *adc_chan_result)
 {
 	int64_t pmic_voltage = 0;
+	bool negative_offset = 0;
 
 	if (!chan_properties || !chan_properties->offset_gain_numerator ||
 		!chan_properties->offset_gain_denominator || !adc_properties
-		|| !adc_chan_result)
+		|| !adc_chan_result
+		|| !chan_properties->adc_graph[CALIB_ABSOLUTE].dy)
 		return -EINVAL;
 
-	if (adc_properties->adc_hc) {
-		/* (ADC code * vref_vadc (1.875V)) / 0x4000 */
-		if (adc_code > QPNP_VADC_HC_MAX_CODE)
-			adc_code = 0;
-		pmic_voltage = (int64_t) adc_code;
-		pmic_voltage *= (int64_t) (adc_properties->adc_vdd_reference
-							* 1000);
-		pmic_voltage = div64_s64(pmic_voltage,
-					QPNP_VADC_HC_VREF_CODE);
-	} else {
-		if (!chan_properties->adc_graph[CALIB_ABSOLUTE].dy)
-			return -EINVAL;
-		qpnp_adc_scale_with_calib_param(adc_code, adc_properties,
-					chan_properties, &pmic_voltage);
+	pmic_voltage = (adc_code -
+		chan_properties->adc_graph[CALIB_ABSOLUTE].adc_gnd)
+		* chan_properties->adc_graph[CALIB_ABSOLUTE].dx;
+	if (pmic_voltage < 0) {
+		negative_offset = 1;
+		pmic_voltage = -pmic_voltage;
 	}
+	do_div(pmic_voltage,
+		chan_properties->adc_graph[CALIB_ABSOLUTE].dy);
+	if (negative_offset)
+		pmic_voltage = -pmic_voltage;
+	pmic_voltage += chan_properties->adc_graph[CALIB_ABSOLUTE].dx;
 
 	if (pmic_voltage > 0) {
 		/* 2mV/K */
@@ -973,12 +954,12 @@ int32_t qpnp_adc_scale_pmic_therm(struct qpnp_vadc_chip *vadc,
 
 		do_div(adc_chan_result->measurement,
 			chan_properties->offset_gain_numerator * 2);
-	} else
+	} else {
 		adc_chan_result->measurement = 0;
-
+	}
 	/* Change to .001 deg C */
 	adc_chan_result->measurement -= KELVINMIL_DEGMIL;
-	adc_chan_result->physical = (int32_t) adc_chan_result->measurement;
+	adc_chan_result->physical = (int32_t)adc_chan_result->measurement;
 
 	return 0;
 }
@@ -992,51 +973,41 @@ int32_t qpnp_adc_scale_millidegc_pmic_voltage_thr(struct qpnp_vadc_chip *chip,
 	int64_t low_output = 0, high_output = 0;
 	int rc = 0, sign = 0;
 
+	rc = qpnp_get_vadc_gain_and_offset(chip, &btm_param, CALIB_ABSOLUTE);
+	if (rc < 0) {
+		pr_err("Could not acquire gain and offset\n");
+		return rc;
+	}
+
 	/* Convert to Kelvin and account for voltage to be written as 2mV/K */
 	low_output = (param->low_temp + KELVINMIL_DEGMIL) * 2;
+	/* Convert to voltage threshold */
+	low_output = (low_output - QPNP_ADC_625_UV) * btm_param.dy;
+	if (low_output < 0) {
+		sign = 1;
+		low_output = -low_output;
+	}
+	do_div(low_output, QPNP_ADC_625_UV);
+	if (sign)
+		low_output = -low_output;
+	low_output += btm_param.adc_gnd;
+
+	sign = 0;
 	/* Convert to Kelvin and account for voltage to be written as 2mV/K */
 	high_output = (param->high_temp + KELVINMIL_DEGMIL) * 2;
-
-	if (param->adc_tm_hc) {
-		low_output *= QPNP_VADC_HC_VREF_CODE;
-		do_div(low_output, (QPNP_VADC_HC_VDD_REFERENCE_MV * 1000));
-		high_output *= QPNP_VADC_HC_VREF_CODE;
-		do_div(high_output, (QPNP_VADC_HC_VDD_REFERENCE_MV * 1000));
-	} else {
-		rc = qpnp_get_vadc_gain_and_offset(chip, &btm_param,
-							CALIB_ABSOLUTE);
-		if (rc < 0) {
-			pr_err("Could not acquire gain and offset\n");
-			return rc;
-		}
-
-		/* Convert to voltage threshold */
-		low_output = (low_output - QPNP_ADC_625_UV) * btm_param.dy;
-		if (low_output < 0) {
-			sign = 1;
-			low_output = -low_output;
-		}
-		do_div(low_output, QPNP_ADC_625_UV);
-		if (sign)
-			low_output = -low_output;
-		low_output += btm_param.adc_gnd;
-
-		sign = 0;
-		/* Convert to voltage threshold */
-		high_output = (high_output - QPNP_ADC_625_UV) * btm_param.dy;
-		if (high_output < 0) {
-			sign = 1;
-			high_output = -high_output;
-		}
-		do_div(high_output, QPNP_ADC_625_UV);
-		if (sign)
-			high_output = -high_output;
-		high_output += btm_param.adc_gnd;
+	/* Convert to voltage threshold */
+	high_output = (high_output - QPNP_ADC_625_UV) * btm_param.dy;
+	if (high_output < 0) {
+		sign = 1;
+		high_output = -high_output;
 	}
+	do_div(high_output, QPNP_ADC_625_UV);
+	if (sign)
+		high_output = -high_output;
+	high_output += btm_param.adc_gnd;
 
 	*low_threshold = (uint32_t) low_output;
 	*high_threshold = (uint32_t) high_output;
-
 	pr_debug("high_temp:%d, low_temp:%d\n", param->high_temp,
 				param->low_temp);
 	pr_debug("adc_code_high:%x, adc_code_low:%x\n", *high_threshold,
@@ -1055,41 +1026,44 @@ int32_t qpnp_adc_tdkntcg_therm(struct qpnp_vadc_chip *chip,
 		const struct qpnp_vadc_chan_properties *chan_properties,
 		struct qpnp_vadc_result *adc_chan_result)
 {
-	int64_t xo_thm_voltage = 0;
+	int64_t xo_thm = 0;
 
 	if (!chan_properties || !chan_properties->offset_gain_numerator ||
 		!chan_properties->offset_gain_denominator || !adc_properties
 		|| !adc_chan_result)
 		return -EINVAL;
 
-	if (adc_properties->adc_hc) {
-		/* (ADC code * vref_vadc (1.875V) * 1000) / (0x4000 * 1000) */
-		if (adc_code > QPNP_VADC_HC_MAX_CODE)
-			adc_code = 0;
-		xo_thm_voltage = (int64_t) adc_code;
-		xo_thm_voltage *= (int64_t) (adc_properties->adc_vdd_reference
-							* 1000);
-		xo_thm_voltage = div64_s64(xo_thm_voltage,
-					QPNP_VADC_HC_VREF_CODE * 1000);
-		qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb_1875_vref,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb_1875_vref),
-			xo_thm_voltage, &adc_chan_result->physical);
-	} else {
-		qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &xo_thm_voltage);
+	xo_thm = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
-		if (chan_properties->calib_type == CALIB_ABSOLUTE)
-			do_div(xo_thm_voltage, 1000);
-
-		qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb),
-			xo_thm_voltage, &adc_chan_result->physical);
-	}
+	qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb,
+		ARRAY_SIZE(adcmap_100k_104ef_104fb),
+		xo_thm, &adc_chan_result->physical);
 
 	return 0;
 }
 EXPORT_SYMBOL(qpnp_adc_tdkntcg_therm);
 
+int32_t qpnp_adc_scale_batt_therm(struct qpnp_vadc_chip *chip,
+		int32_t adc_code,
+		const struct qpnp_adc_properties *adc_properties,
+		const struct qpnp_vadc_chan_properties *chan_properties,
+		struct qpnp_vadc_result *adc_chan_result)
+{
+	int64_t bat_voltage = 0;
+
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
+
+	adc_chan_result->measurement = bat_voltage;
+
+	return qpnp_adc_map_temp_voltage(
+			adcmap_btm_threshold,
+			ARRAY_SIZE(adcmap_btm_threshold),
+			bat_voltage,
+			&adc_chan_result->physical);
+}
+EXPORT_SYMBOL(qpnp_adc_scale_batt_therm);
 
 // add for FAO use MCS battery {{
 int32_t qpnp_adc_scale_fao_batt_therm(struct qpnp_vadc_chip *chip,
@@ -1099,10 +1073,10 @@ int32_t qpnp_adc_scale_fao_batt_therm(struct qpnp_vadc_chip *chip,
 		struct qpnp_vadc_result *adc_chan_result)
 {
 	int64_t bat_voltage = 0;
-			
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
-			
+
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
+
 	adc_chan_result->measurement = bat_voltage;
 	return qpnp_adc_map_temp_voltage(
 			adcmap_FaoUseMcs_batt,
@@ -1123,8 +1097,8 @@ int32_t qpnp_adc_scale_fao_evt_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	adc_chan_result->measurement = bat_voltage;
 
@@ -1138,28 +1112,6 @@ EXPORT_SYMBOL(qpnp_adc_scale_fao_evt_batt_therm);
 
 // add for FAO use MCS battery }}
 
-
-int32_t qpnp_adc_scale_batt_therm(struct qpnp_vadc_chip *chip,
-		int32_t adc_code,
-		const struct qpnp_adc_properties *adc_properties,
-		const struct qpnp_vadc_chan_properties *chan_properties,
-		struct qpnp_vadc_result *adc_chan_result)
-{
-	int64_t bat_voltage = 0;
-
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
-
-	adc_chan_result->measurement = bat_voltage;
-
-	return qpnp_adc_map_temp_voltage(
-			adcmap_btm_threshold,
-			ARRAY_SIZE(adcmap_btm_threshold),
-			bat_voltage,
-			&adc_chan_result->physical);
-}
-EXPORT_SYMBOL(qpnp_adc_scale_batt_therm);
-
 int32_t qpnp_adc_scale_qrd_batt_therm(struct qpnp_vadc_chip *chip,
 		int32_t adc_code,
 		const struct qpnp_adc_properties *adc_properties,
@@ -1168,8 +1120,8 @@ int32_t qpnp_adc_scale_qrd_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	adc_chan_result->measurement = bat_voltage;
 
@@ -1189,8 +1141,8 @@ int32_t qpnp_adc_scale_qrd_skuaa_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	adc_chan_result->measurement = bat_voltage;
 
@@ -1210,8 +1162,9 @@ int32_t qpnp_adc_scale_qrd_skug_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
+
 	adc_chan_result->measurement = bat_voltage;
 
 	return qpnp_adc_map_temp_voltage(
@@ -1230,8 +1183,8 @@ int32_t qpnp_adc_scale_qrd_skuh_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	return qpnp_adc_map_temp_voltage(
 			adcmap_qrd_skuh_btm_threshold,
@@ -1241,25 +1194,6 @@ int32_t qpnp_adc_scale_qrd_skuh_batt_therm(struct qpnp_vadc_chip *chip,
 }
 EXPORT_SYMBOL(qpnp_adc_scale_qrd_skuh_batt_therm);
 
-int32_t qpnp_adc_scale_qrd_skut1_batt_therm(struct qpnp_vadc_chip *chip,
-		int32_t adc_code,
-		const struct qpnp_adc_properties *adc_properties,
-		const struct qpnp_vadc_chan_properties *chan_properties,
-		struct qpnp_vadc_result *adc_chan_result)
-{
-	int64_t bat_voltage = 0;
-
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
-
-	return qpnp_adc_map_temp_voltage(
-			adcmap_qrd_skut1_btm_threshold,
-			ARRAY_SIZE(adcmap_qrd_skut1_btm_threshold),
-			bat_voltage,
-			&adc_chan_result->physical);
-}
-EXPORT_SYMBOL(qpnp_adc_scale_qrd_skut1_batt_therm);
-
 int32_t qpnp_adc_scale_qrd_skuc_batt_therm(struct qpnp_vadc_chip *chip,
 			int32_t adc_code,
 			const struct qpnp_adc_properties *adc_properties,
@@ -1268,8 +1202,8 @@ int32_t qpnp_adc_scale_qrd_skuc_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	return qpnp_adc_map_temp_voltage(
 			adcmap_qrd_skuc_btm_threshold,
@@ -1287,8 +1221,8 @@ int32_t qpnp_adc_scale_qrd_skue_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	return qpnp_adc_map_temp_voltage(
 			adcmap_qrd_skue_btm_threshold,
@@ -1298,6 +1232,25 @@ int32_t qpnp_adc_scale_qrd_skue_batt_therm(struct qpnp_vadc_chip *chip,
 }
 EXPORT_SYMBOL(qpnp_adc_scale_qrd_skue_batt_therm);
 
+int32_t qpnp_adc_scale_qrd_skul_batt_therm(struct qpnp_vadc_chip *chip,
+			int32_t adc_code,
+			const struct qpnp_adc_properties *adc_properties,
+			const struct qpnp_vadc_chan_properties *chan_properties,
+			struct qpnp_vadc_result *adc_chan_result)
+{
+	int64_t bat_voltage = 0;
+
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
+
+	return qpnp_adc_map_temp_voltage(
+			adcmap_qrd_skul_btm_threshold,
+			ARRAY_SIZE(adcmap_qrd_skul_btm_threshold),
+			bat_voltage,
+			&adc_chan_result->physical);
+}
+EXPORT_SYMBOL(qpnp_adc_scale_qrd_skul_batt_therm);
+
 int32_t qpnp_adc_scale_smb_batt_therm(struct qpnp_vadc_chip *chip,
 		int32_t adc_code,
 		const struct qpnp_adc_properties *adc_properties,
@@ -1306,8 +1259,8 @@ int32_t qpnp_adc_scale_smb_batt_therm(struct qpnp_vadc_chip *chip,
 {
 	int64_t bat_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &bat_voltage);
+	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	return qpnp_adc_map_temp_voltage(
 			adcmap_smb_batt_therm,
@@ -1325,8 +1278,8 @@ int32_t qpnp_adc_scale_therm_pu1(struct qpnp_vadc_chip *chip,
 {
 	int64_t therm_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &therm_voltage);
+	therm_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	qpnp_adc_map_voltage_temp(adcmap_150k_104ef_104fb,
 		ARRAY_SIZE(adcmap_150k_104ef_104fb),
@@ -1344,128 +1297,71 @@ int32_t qpnp_adc_scale_therm_pu2(struct qpnp_vadc_chip *chip,
 {
 	int64_t therm_voltage = 0;
 
-	if (!chan_properties || !chan_properties->offset_gain_numerator ||
-		!chan_properties->offset_gain_denominator || !adc_properties)
-		return -EINVAL;
+	therm_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
-	if (adc_properties->adc_hc) {
-		/* (ADC code * vref_vadc (1.875V) * 1000) / (0x4000 * 1000) */
-		if (adc_code > QPNP_VADC_HC_MAX_CODE)
-			adc_code = 0;
-		therm_voltage = (int64_t) adc_code;
-		therm_voltage *= (int64_t) (adc_properties->adc_vdd_reference
-							* 1000);
-		therm_voltage = div64_s64(therm_voltage,
-					(QPNP_VADC_HC_VREF_CODE * 1000));
-
-		qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb_1875_vref,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb_1875_vref),
-			therm_voltage, &adc_chan_result->physical);
-	} else {
-		qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &therm_voltage);
-
-		if (chan_properties->calib_type == CALIB_ABSOLUTE)
-			do_div(therm_voltage, 1000);
-
-		qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb),
-			therm_voltage, &adc_chan_result->physical);
-	}
+	qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb,
+		ARRAY_SIZE(adcmap_100k_104ef_104fb),
+		therm_voltage, &adc_chan_result->physical);
 
 	return 0;
 }
 EXPORT_SYMBOL(qpnp_adc_scale_therm_pu2);
 
 int32_t qpnp_adc_tm_scale_voltage_therm_pu2(struct qpnp_vadc_chip *chip,
-		const struct qpnp_adc_properties *adc_properties,
 					uint32_t reg, int64_t *result)
 {
 	int64_t adc_voltage = 0;
 	struct qpnp_vadc_linear_graph param1;
-	int negative_offset = 0;
+	int negative_offset;
 
-	if (adc_properties->adc_hc) {
-		/* (ADC code * vref_vadc (1.875V)) / 0x4000 */
-		if (reg > QPNP_VADC_HC_MAX_CODE)
-			reg = 0;
-		adc_voltage = (int64_t) reg;
-		adc_voltage *= QPNP_VADC_HC_VDD_REFERENCE_MV;
-		adc_voltage = div64_s64(adc_voltage,
-					QPNP_VADC_HC_VREF_CODE);
-		qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb_1875_vref,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb_1875_vref),
-			adc_voltage, result);
-	} else {
-		qpnp_get_vadc_gain_and_offset(chip, &param1, CALIB_RATIOMETRIC);
+	qpnp_get_vadc_gain_and_offset(chip, &param1, CALIB_RATIOMETRIC);
 
-		adc_voltage = (reg - param1.adc_gnd) * param1.adc_vref;
-		if (adc_voltage < 0) {
-			negative_offset = 1;
-			adc_voltage = -adc_voltage;
-		}
-
-		do_div(adc_voltage, param1.dy);
-
-		qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb),
-			adc_voltage, result);
-		if (negative_offset)
-			adc_voltage = -adc_voltage;
+	adc_voltage = (reg - param1.adc_gnd) * param1.adc_vref;
+	if (adc_voltage < 0) {
+		negative_offset = 1;
+		adc_voltage = -adc_voltage;
 	}
+
+	do_div(adc_voltage, param1.dy);
+
+	qpnp_adc_map_voltage_temp(adcmap_100k_104ef_104fb,
+		ARRAY_SIZE(adcmap_100k_104ef_104fb),
+		adc_voltage, result);
+	if (negative_offset)
+		adc_voltage = -adc_voltage;
 
 	return 0;
 }
 EXPORT_SYMBOL(qpnp_adc_tm_scale_voltage_therm_pu2);
 
 int32_t qpnp_adc_tm_scale_therm_voltage_pu2(struct qpnp_vadc_chip *chip,
-			const struct qpnp_adc_properties *adc_properties,
 				struct qpnp_adc_tm_config *param)
 {
 	struct qpnp_vadc_linear_graph param1;
 	int rc;
 
-	if (adc_properties->adc_hc) {
-		rc = qpnp_adc_map_temp_voltage(
-			adcmap_100k_104ef_104fb_1875_vref,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb_1875_vref),
-			param->low_thr_temp, &param->low_thr_voltage);
-		if (rc)
-			return rc;
-		param->low_thr_voltage *= QPNP_VADC_HC_VREF_CODE;
-		do_div(param->low_thr_voltage, QPNP_VADC_HC_VDD_REFERENCE_MV);
+	qpnp_get_vadc_gain_and_offset(chip, &param1, CALIB_RATIOMETRIC);
 
-		rc = qpnp_adc_map_temp_voltage(
-			adcmap_100k_104ef_104fb_1875_vref,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb_1875_vref),
-			param->high_thr_temp, &param->high_thr_voltage);
-		if (rc)
-			return rc;
-		param->high_thr_voltage *= QPNP_VADC_HC_VREF_CODE;
-		do_div(param->high_thr_voltage, QPNP_VADC_HC_VDD_REFERENCE_MV);
-	} else {
-		qpnp_get_vadc_gain_and_offset(chip, &param1, CALIB_RATIOMETRIC);
+	rc = qpnp_adc_map_temp_voltage(adcmap_100k_104ef_104fb,
+		ARRAY_SIZE(adcmap_100k_104ef_104fb),
+		param->low_thr_temp, &param->low_thr_voltage);
+	if (rc)
+		return rc;
 
-		rc = qpnp_adc_map_temp_voltage(adcmap_100k_104ef_104fb,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb),
-			param->low_thr_temp, &param->low_thr_voltage);
-		if (rc)
-			return rc;
+	param->low_thr_voltage *= param1.dy;
+	do_div(param->low_thr_voltage, param1.adc_vref);
+	param->low_thr_voltage += param1.adc_gnd;
 
-		param->low_thr_voltage *= param1.dy;
-		do_div(param->low_thr_voltage, param1.adc_vref);
-		param->low_thr_voltage += param1.adc_gnd;
+	rc = qpnp_adc_map_temp_voltage(adcmap_100k_104ef_104fb,
+		ARRAY_SIZE(adcmap_100k_104ef_104fb),
+		param->high_thr_temp, &param->high_thr_voltage);
+	if (rc)
+		return rc;
 
-		rc = qpnp_adc_map_temp_voltage(adcmap_100k_104ef_104fb,
-			ARRAY_SIZE(adcmap_100k_104ef_104fb),
-			param->high_thr_temp, &param->high_thr_voltage);
-		if (rc)
-			return rc;
-
-		param->high_thr_voltage *= param1.dy;
-		do_div(param->high_thr_voltage, param1.adc_vref);
-		param->high_thr_voltage += param1.adc_gnd;
-	}
+	param->high_thr_voltage *= param1.dy;
+	do_div(param->high_thr_voltage, param1.adc_vref);
+	param->high_thr_voltage += param1.adc_gnd;
 
 	return 0;
 }
@@ -1479,8 +1375,8 @@ int32_t qpnp_adc_scale_therm_ncp03(struct qpnp_vadc_chip *chip,
 {
 	int64_t therm_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &therm_voltage);
+	therm_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 
 	qpnp_adc_map_voltage_temp(adcmap_ncp03wf683,
 		ARRAY_SIZE(adcmap_ncp03wf683),
@@ -1498,9 +1394,8 @@ int32_t qpnp_adc_scale_batt_id(struct qpnp_vadc_chip *chip,
 {
 	int64_t batt_id_voltage = 0;
 
-	qpnp_adc_scale_with_calib_param(adc_code,
-			adc_properties, chan_properties, &batt_id_voltage);
-
+	batt_id_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
+			adc_properties, chan_properties);
 	adc_chan_result->physical = batt_id_voltage;
 	adc_chan_result->physical = adc_chan_result->measurement;
 
@@ -1514,6 +1409,7 @@ int32_t qpnp_adc_scale_default(struct qpnp_vadc_chip *vadc,
 		const struct qpnp_vadc_chan_properties *chan_properties,
 		struct qpnp_vadc_result *adc_chan_result)
 {
+	bool negative_rawfromoffset = 0, negative_offset = 0;
 	int64_t scale_voltage = 0;
 
 	if (!chan_properties || !chan_properties->offset_gain_numerator ||
@@ -1521,26 +1417,43 @@ int32_t qpnp_adc_scale_default(struct qpnp_vadc_chip *vadc,
 		|| !adc_chan_result)
 		return -EINVAL;
 
-	if (adc_properties->adc_hc) {
-		/* (ADC code * vref_vadc (1.875V)) / 0x4000 */
-		if (adc_code > QPNP_VADC_HC_MAX_CODE)
-			adc_code = 0;
-		scale_voltage = (int64_t) adc_code;
-		scale_voltage *= (adc_properties->adc_vdd_reference * 1000);
-		scale_voltage = div64_s64(scale_voltage,
-						QPNP_VADC_HC_VREF_CODE);
-	} else {
-		qpnp_adc_scale_with_calib_param(adc_code, adc_properties,
-					chan_properties, &scale_voltage);
-		if (!chan_properties->calib_type == CALIB_ABSOLUTE)
-			scale_voltage *= 1000;
+	scale_voltage = (adc_code -
+		chan_properties->adc_graph[chan_properties->calib_type].adc_gnd)
+		* chan_properties->adc_graph[chan_properties->calib_type].dx;
+	if (scale_voltage < 0) {
+		negative_offset = 1;
+		scale_voltage = -scale_voltage;
+	}
+	do_div(scale_voltage,
+		chan_properties->adc_graph[chan_properties->calib_type].dy);
+	if (negative_offset)
+		scale_voltage = -scale_voltage;
+
+	if (chan_properties->calib_type == CALIB_ABSOLUTE)
+		scale_voltage +=
+		chan_properties->adc_graph[chan_properties->calib_type].dx;
+	else
+		scale_voltage *= 1000;
+
+	if (scale_voltage < 0) {
+		if (adc_properties->bipolar) {
+			scale_voltage = -scale_voltage;
+			negative_rawfromoffset = 1;
+		} else {
+			scale_voltage = 0;
+		}
 	}
 
+	adc_chan_result->measurement = scale_voltage *
+				chan_properties->offset_gain_denominator;
 
-	scale_voltage *= chan_properties->offset_gain_denominator;
-	scale_voltage = div64_s64(scale_voltage,
+	/* do_div only perform positive integer division! */
+	do_div(adc_chan_result->measurement,
 				chan_properties->offset_gain_numerator);
-	adc_chan_result->measurement = scale_voltage;
+
+	if (negative_rawfromoffset)
+		adc_chan_result->measurement = -adc_chan_result->measurement;
+
 	/*
 	 * Note: adc_chan_result->measurement is in the unit of
 	 * adc_properties.adc_reference. For generic channel processing,
@@ -1575,6 +1488,49 @@ int32_t qpnp_adc_usb_scaler(struct qpnp_vadc_chip *chip,
 }
 EXPORT_SYMBOL(qpnp_adc_usb_scaler);
 
+int32_t qpnp_adc_vbatt_rscaler(struct qpnp_vadc_chip *chip,
+		struct qpnp_adc_tm_btm_param *param,
+		uint32_t *low_threshold, uint32_t *high_threshold)
+{
+	struct qpnp_vadc_linear_graph vbatt_param;
+	int rc = 0, sign = 0;
+	int64_t low_thr = 0, high_thr = 0;
+
+	rc = qpnp_get_vadc_gain_and_offset(chip, &vbatt_param, CALIB_ABSOLUTE);
+	if (rc < 0)
+		return rc;
+
+	low_thr = (((param->low_thr/3) - QPNP_ADC_625_UV) *
+				vbatt_param.dy);
+	if (low_thr < 0) {
+		sign = 1;
+		low_thr = -low_thr;
+	}
+	do_div(low_thr, QPNP_ADC_625_UV);
+	if (sign)
+		low_thr = -low_thr;
+	*low_threshold = low_thr + vbatt_param.adc_gnd;
+
+	sign = 0;
+	high_thr = (((param->high_thr/3) - QPNP_ADC_625_UV) *
+				vbatt_param.dy);
+	if (high_thr < 0) {
+		sign = 1;
+		high_thr = -high_thr;
+	}
+	do_div(high_thr, QPNP_ADC_625_UV);
+	if (sign)
+		high_thr = -high_thr;
+	*high_threshold = high_thr + vbatt_param.adc_gnd;
+
+	pr_debug("high_volt:%d, low_volt:%d\n", param->high_thr,
+				param->low_thr);
+	pr_debug("adc_code_high:%x, adc_code_low:%x\n", *high_threshold,
+				*low_threshold);
+	return 0;
+}
+EXPORT_SYMBOL(qpnp_adc_vbatt_rscaler);
+
 int32_t qpnp_adc_absolute_rthr(struct qpnp_vadc_chip *chip,
 		struct qpnp_adc_tm_btm_param *param,
 		uint32_t *low_threshold, uint32_t *high_threshold)
@@ -1583,49 +1539,30 @@ int32_t qpnp_adc_absolute_rthr(struct qpnp_vadc_chip *chip,
 	int rc = 0, sign = 0;
 	int64_t low_thr = 0, high_thr = 0;
 
-	if (param->adc_tm_hc) {
-		low_thr = (param->low_thr/param->gain_den);
-		low_thr *= param->gain_num;
-		low_thr *= QPNP_VADC_HC_VREF_CODE;
-		do_div(low_thr, (QPNP_VADC_HC_VDD_REFERENCE_MV * 1000));
-		*low_threshold = low_thr;
+	rc = qpnp_get_vadc_gain_and_offset(chip, &vbatt_param, CALIB_ABSOLUTE);
+	if (rc < 0)
+		return rc;
 
-		high_thr = (param->high_thr/param->gain_den);
-		high_thr *= param->gain_num;
-		high_thr *= QPNP_VADC_HC_VREF_CODE;
-		do_div(high_thr, (QPNP_VADC_HC_VDD_REFERENCE_MV * 1000));
-		*high_threshold = high_thr;
-	} else {
-		rc = qpnp_get_vadc_gain_and_offset(chip, &vbatt_param,
-							CALIB_ABSOLUTE);
-		if (rc < 0)
-			return rc;
-
-		low_thr = (((param->low_thr/param->gain_den) -
-				QPNP_ADC_625_UV) * vbatt_param.dy);
-		if (low_thr < 0) {
-			sign = 1;
-			low_thr = -low_thr;
-		}
-		low_thr = low_thr * param->gain_num;
-		do_div(low_thr, QPNP_ADC_625_UV);
-		if (sign)
-			low_thr = -low_thr;
-		*low_threshold = low_thr + vbatt_param.adc_gnd;
-
-		sign = 0;
-		high_thr = (((param->high_thr/param->gain_den) -
-				QPNP_ADC_625_UV) * vbatt_param.dy);
-		if (high_thr < 0) {
-			sign = 1;
-			high_thr = -high_thr;
-		}
-		high_thr = high_thr * param->gain_num;
-		do_div(high_thr, QPNP_ADC_625_UV);
-		if (sign)
-			high_thr = -high_thr;
-		*high_threshold = high_thr + vbatt_param.adc_gnd;
+	low_thr = (((param->low_thr) - QPNP_ADC_625_UV) * vbatt_param.dy);
+	if (low_thr < 0) {
+		sign = 1;
+		low_thr = -low_thr;
 	}
+	do_div(low_thr, QPNP_ADC_625_UV);
+	if (sign)
+		low_thr = -low_thr;
+	*low_threshold = low_thr + vbatt_param.adc_gnd;
+
+	sign = 0;
+	high_thr = (((param->high_thr) - QPNP_ADC_625_UV) * vbatt_param.dy);
+	if (high_thr < 0) {
+		sign = 1;
+		high_thr = -high_thr;
+	}
+	do_div(high_thr, QPNP_ADC_625_UV);
+	if (sign)
+		high_thr = -high_thr;
+	*high_threshold = high_thr + vbatt_param.adc_gnd;
 
 	pr_debug("high_volt:%d, low_volt:%d\n", param->high_thr,
 				param->low_thr);
@@ -1634,15 +1571,6 @@ int32_t qpnp_adc_absolute_rthr(struct qpnp_vadc_chip *chip,
 	return 0;
 }
 EXPORT_SYMBOL(qpnp_adc_absolute_rthr);
-
-int32_t qpnp_adc_vbatt_rscaler(struct qpnp_vadc_chip *chip,
-		struct qpnp_adc_tm_btm_param *param,
-		uint32_t *low_threshold, uint32_t *high_threshold)
-{
-	return qpnp_adc_absolute_rthr(chip, param, low_threshold,
-							high_threshold);
-}
-EXPORT_SYMBOL(qpnp_adc_vbatt_rscaler);
 
 int32_t qpnp_vadc_absolute_rthr(struct qpnp_vadc_chip *chip,
 		const struct qpnp_vadc_chan_properties *chan_prop,
@@ -1661,7 +1589,7 @@ int32_t qpnp_vadc_absolute_rthr(struct qpnp_vadc_chip *chip,
 	if (rc < 0)
 		return rc;
 
-	low_thr = (((param->low_thr)/(int)chan_prop->offset_gain_denominator
+	low_thr = (((param->low_thr)/chan_prop->offset_gain_denominator
 					- QPNP_ADC_625_UV) * vbatt_param.dy);
 	if (low_thr < 0) {
 		sign = 1;
@@ -1674,7 +1602,7 @@ int32_t qpnp_vadc_absolute_rthr(struct qpnp_vadc_chip *chip,
 	*low_threshold = low_thr + vbatt_param.adc_gnd;
 
 	sign = 0;
-	high_thr = (((param->high_thr)/(int)chan_prop->offset_gain_denominator
+	high_thr = (((param->high_thr)/chan_prop->offset_gain_denominator
 					- QPNP_ADC_625_UV) * vbatt_param.dy);
 	if (high_thr < 0) {
 		sign = 1;
@@ -1701,11 +1629,6 @@ int32_t qpnp_adc_btm_scaler(struct qpnp_vadc_chip *chip,
 	struct qpnp_vadc_linear_graph btm_param;
 	int64_t low_output = 0, high_output = 0;
 	int rc = 0;
-
-	if (param->adc_tm_hc) {
-		pr_err("Update scaling for VADC_TM_HC\n");
-		return -EINVAL;
-	}
 
 	qpnp_get_vadc_gain_and_offset(chip, &btm_param, CALIB_RATIOMETRIC);
 
@@ -1750,7 +1673,6 @@ int32_t qpnp_adc_btm_scaler(struct qpnp_vadc_chip *chip,
 				*low_threshold);
 	return 0;
 }
-
 // add for FAO {{
 int32_t qpnp_adc_btm_fao_scaler(struct qpnp_vadc_chip *chip,
 		struct qpnp_adc_tm_btm_param *param,
@@ -1872,11 +1794,6 @@ int32_t qpnp_adc_qrd_skuh_btm_scaler(struct qpnp_vadc_chip *chip,
 	int64_t low_output = 0, high_output = 0;
 	int rc = 0;
 
-	if (param->adc_tm_hc) {
-		pr_err("Update scaling for VADC_TM_HC\n");
-		return -EINVAL;
-	}
-
 	qpnp_get_vadc_gain_and_offset(chip, &btm_param, CALIB_RATIOMETRIC);
 
 	pr_debug("warm_temp:%d and cool_temp:%d\n", param->high_temp,
@@ -1921,64 +1838,6 @@ int32_t qpnp_adc_qrd_skuh_btm_scaler(struct qpnp_vadc_chip *chip,
 	return 0;
 }
 EXPORT_SYMBOL(qpnp_adc_qrd_skuh_btm_scaler);
-
-int32_t qpnp_adc_qrd_skut1_btm_scaler(struct qpnp_vadc_chip *chip,
-		struct qpnp_adc_tm_btm_param *param,
-		uint32_t *low_threshold, uint32_t *high_threshold)
-{
-	struct qpnp_vadc_linear_graph btm_param;
-	int64_t low_output = 0, high_output = 0;
-	int rc = 0;
-
-	if (param->adc_tm_hc) {
-		pr_err("Update scaling for VADC_TM_HC\n");
-		return -EINVAL;
-	}
-
-	qpnp_get_vadc_gain_and_offset(chip, &btm_param, CALIB_RATIOMETRIC);
-
-	pr_debug("warm_temp:%d and cool_temp:%d\n", param->high_temp,
-				param->low_temp);
-	rc = qpnp_adc_map_voltage_temp(
-		adcmap_qrd_skut1_btm_threshold,
-		ARRAY_SIZE(adcmap_qrd_skut1_btm_threshold),
-		(param->low_temp),
-		&low_output);
-	if (rc) {
-		pr_debug("low_temp mapping failed with %d\n", rc);
-		return rc;
-	}
-
-	pr_debug("low_output:%lld\n", low_output);
-	low_output *= btm_param.dy;
-	do_div(low_output, btm_param.adc_vref);
-	low_output += btm_param.adc_gnd;
-
-	rc = qpnp_adc_map_voltage_temp(
-		adcmap_qrd_skut1_btm_threshold,
-		ARRAY_SIZE(adcmap_qrd_skut1_btm_threshold),
-		(param->high_temp),
-		&high_output);
-	if (rc) {
-		pr_debug("high temp mapping failed with %d\n", rc);
-		return rc;
-	}
-
-	pr_debug("high_output:%lld\n", high_output);
-	high_output *= btm_param.dy;
-	do_div(high_output, btm_param.adc_vref);
-	high_output += btm_param.adc_gnd;
-
-	/* btm low temperature correspondes to high voltage threshold */
-	*low_threshold = high_output;
-	/* btm high temperature correspondes to low voltage threshold */
-	*high_threshold = low_output;
-
-	pr_debug("high_volt:%d, low_volt:%d\n", *high_threshold,
-				*low_threshold);
-	return 0;
-}
-EXPORT_SYMBOL(qpnp_adc_qrd_skut1_btm_scaler);
 
 int32_t qpnp_adc_qrd_skue_btm_scaler(struct qpnp_vadc_chip *chip,
 		struct qpnp_adc_tm_btm_param *param,
@@ -2041,11 +1900,6 @@ int32_t qpnp_adc_smb_btm_rscaler(struct qpnp_vadc_chip *chip,
 	int64_t low_output = 0, high_output = 0;
 	int rc = 0;
 
-	if (param->adc_tm_hc) {
-		pr_err("Update scaling for VADC_TM_HC\n");
-		return -EINVAL;
-	}
-
 	qpnp_get_vadc_gain_and_offset(chip, &btm_param, CALIB_RATIOMETRIC);
 
 	pr_debug("warm_temp:%d and cool_temp:%d\n", param->high_temp,
@@ -2091,77 +1945,19 @@ int32_t qpnp_adc_smb_btm_rscaler(struct qpnp_vadc_chip *chip,
 }
 EXPORT_SYMBOL(qpnp_adc_smb_btm_rscaler);
 
-int32_t qpnp_adc_scale_pmi_chg_temp(struct qpnp_vadc_chip *vadc,
-		int32_t adc_code,
-		const struct qpnp_adc_properties *adc_properties,
-		const struct qpnp_vadc_chan_properties *chan_properties,
-		struct qpnp_vadc_result *adc_chan_result)
+int32_t qpnp_vadc_check_result(int32_t *data, bool recalib_check)
 {
-	int rc = 0;
+	if (recalib_check)
+		return 0;
 
-	rc = qpnp_adc_scale_default(vadc, adc_code, adc_properties,
-			chan_properties, adc_chan_result);
-	if (rc < 0)
-		return rc;
-
-	pr_debug("raw_code:%x, v_adc:%lld\n", adc_code,
-						adc_chan_result->physical);
-	adc_chan_result->physical = (int64_t) ((PMI_CHG_SCALE_1) *
-					(adc_chan_result->physical * 2));
-	adc_chan_result->physical = (int64_t) (adc_chan_result->physical +
-							PMI_CHG_SCALE_2);
-	adc_chan_result->physical = (int64_t) adc_chan_result->physical;
-	adc_chan_result->physical = div64_s64(adc_chan_result->physical,
-								1000000);
+	if (*data < QPNP_VADC_MIN_ADC_CODE)
+		*data = QPNP_VADC_MIN_ADC_CODE;
+	else if (*data > QPNP_VADC_MAX_ADC_CODE)
+		*data = QPNP_VADC_MAX_ADC_CODE;
 
 	return 0;
 }
-EXPORT_SYMBOL(qpnp_adc_scale_pmi_chg_temp);
-
-int32_t qpnp_adc_enable_voltage(struct qpnp_adc_drv *adc)
-{
-	int rc = 0;
-
-	if (adc->hkadc_ldo) {
-		rc = regulator_enable(adc->hkadc_ldo);
-		if (rc < 0) {
-			pr_err("Failed to enable hkadc ldo\n");
-			return rc;
-		}
-	}
-
-	if (adc->hkadc_ldo_ok) {
-		rc = regulator_enable(adc->hkadc_ldo_ok);
-		if (rc < 0) {
-			pr_err("Failed to enable hkadc ok signal\n");
-			return rc;
-		}
-	}
-
-	return rc;
-}
-EXPORT_SYMBOL(qpnp_adc_enable_voltage);
-
-void qpnp_adc_disable_voltage(struct qpnp_adc_drv *adc)
-{
-	if (adc->hkadc_ldo)
-		regulator_disable(adc->hkadc_ldo);
-
-	if (adc->hkadc_ldo_ok)
-		regulator_disable(adc->hkadc_ldo_ok);
-
-}
-EXPORT_SYMBOL(qpnp_adc_disable_voltage);
-
-void qpnp_adc_free_voltage_resource(struct qpnp_adc_drv *adc)
-{
-	if (adc->hkadc_ldo)
-		regulator_put(adc->hkadc_ldo);
-
-	if (adc->hkadc_ldo_ok)
-		regulator_put(adc->hkadc_ldo_ok);
-}
-EXPORT_SYMBOL(qpnp_adc_free_voltage_resource);
+EXPORT_SYMBOL(qpnp_vadc_check_result);
 
 int qpnp_adc_get_revid_version(struct device *dev)
 {
@@ -2185,89 +1981,100 @@ int qpnp_adc_get_revid_version(struct device *dev)
 		(revid_data->rev2 == PM8941_V3P1_REV2) &&
 		(revid_data->rev3 == PM8941_V3P1_REV3) &&
 		(revid_data->rev4 == PM8941_V3P1_REV4) &&
-		(revid_data->pmic_subtype == PM8941_SUBTYPE))
+		(revid_data->pmic_type == PM8941_V3P1_TYPE) &&
+		(revid_data->pmic_subtype == PM8941_V3P1_SUBTYPE))
 			return QPNP_REV_ID_8941_3_1;
 	else if ((revid_data->rev1 == PM8941_V3P0_REV1) &&
 		(revid_data->rev2 == PM8941_V3P0_REV2) &&
 		(revid_data->rev3 == PM8941_V3P0_REV3) &&
 		(revid_data->rev4 == PM8941_V3P0_REV4) &&
-		(revid_data->pmic_subtype == PM8941_SUBTYPE))
+		(revid_data->pmic_type == PM8941_V3P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8941_V3P0_SUBTYPE))
 			return QPNP_REV_ID_8941_3_0;
 	else if ((revid_data->rev1 == PM8941_V2P0_REV1) &&
 		(revid_data->rev2 == PM8941_V2P0_REV2) &&
 		(revid_data->rev3 == PM8941_V2P0_REV3) &&
 		(revid_data->rev4 == PM8941_V2P0_REV4) &&
-		(revid_data->pmic_subtype == PM8941_SUBTYPE))
+		(revid_data->pmic_type == PM8941_V2P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8941_V2P0_SUBTYPE))
 			return QPNP_REV_ID_8941_2_0;
 	else if ((revid_data->rev1 == PM8226_V2P2_REV1) &&
 		(revid_data->rev2 == PM8226_V2P2_REV2) &&
 		(revid_data->rev3 == PM8226_V2P2_REV3) &&
 		(revid_data->rev4 == PM8226_V2P2_REV4) &&
-		(revid_data->pmic_subtype == PM8226_SUBTYPE))
+		(revid_data->pmic_type == PM8226_V2P2_TYPE) &&
+		(revid_data->pmic_subtype == PM8226_V2P2_SUBTYPE))
 			return QPNP_REV_ID_8026_2_2;
 	else if ((revid_data->rev1 == PM8226_V2P1_REV1) &&
 		(revid_data->rev2 == PM8226_V2P1_REV2) &&
 		(revid_data->rev3 == PM8226_V2P1_REV3) &&
 		(revid_data->rev4 == PM8226_V2P1_REV4) &&
-		(revid_data->pmic_subtype == PM8226_SUBTYPE))
+		(revid_data->pmic_type == PM8226_V2P1_TYPE) &&
+		(revid_data->pmic_subtype == PM8226_V2P1_SUBTYPE))
 			return QPNP_REV_ID_8026_2_1;
 	else if ((revid_data->rev1 == PM8226_V2P0_REV1) &&
 		(revid_data->rev2 == PM8226_V2P0_REV2) &&
 		(revid_data->rev3 == PM8226_V2P0_REV3) &&
 		(revid_data->rev4 == PM8226_V2P0_REV4) &&
-		(revid_data->pmic_subtype == PM8226_SUBTYPE))
+		(revid_data->pmic_type == PM8226_V2P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8226_V2P0_SUBTYPE))
 			return QPNP_REV_ID_8026_2_0;
 	else if ((revid_data->rev1 == PM8226_V1P0_REV1) &&
 		(revid_data->rev2 == PM8226_V1P0_REV2) &&
 		(revid_data->rev3 == PM8226_V1P0_REV3) &&
 		(revid_data->rev4 == PM8226_V1P0_REV4) &&
-		(revid_data->pmic_subtype == PM8226_SUBTYPE))
+		(revid_data->pmic_type == PM8226_V1P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8226_V1P0_SUBTYPE))
 			return QPNP_REV_ID_8026_1_0;
 	else if ((revid_data->rev1 == PM8110_V1P0_REV1) &&
 		(revid_data->rev2 == PM8110_V1P0_REV2) &&
 		(revid_data->rev3 == PM8110_V1P0_REV3) &&
 		(revid_data->rev4 == PM8110_V1P0_REV4) &&
-		(revid_data->pmic_subtype == PM8110_SUBTYPE))
+		(revid_data->pmic_type == PM8110_V1P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8110_V1P0_SUBTYPE))
 			return QPNP_REV_ID_8110_1_0;
 	else if ((revid_data->rev1 == PM8110_V2P0_REV1) &&
 		(revid_data->rev2 == PM8110_V2P0_REV2) &&
 		(revid_data->rev3 == PM8110_V2P0_REV3) &&
 		(revid_data->rev4 == PM8110_V2P0_REV4) &&
-		(revid_data->pmic_subtype == PM8110_SUBTYPE))
+		(revid_data->pmic_type == PM8110_V2P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8110_V2P0_SUBTYPE))
 			return QPNP_REV_ID_8110_2_0;
 	else if ((revid_data->rev1 == PM8916_V1P0_REV1) &&
 		(revid_data->rev2 == PM8916_V1P0_REV2) &&
 		(revid_data->rev3 == PM8916_V1P0_REV3) &&
 		(revid_data->rev4 == PM8916_V1P0_REV4) &&
-		(revid_data->pmic_subtype == PM8916_SUBTYPE))
+		(revid_data->pmic_type == PM8916_V1P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8916_V1P0_SUBTYPE))
 			return QPNP_REV_ID_8916_1_0;
 	else if ((revid_data->rev1 == PM8916_V1P1_REV1) &&
 		(revid_data->rev2 == PM8916_V1P1_REV2) &&
 		(revid_data->rev3 == PM8916_V1P1_REV3) &&
 		(revid_data->rev4 == PM8916_V1P1_REV4) &&
-		(revid_data->pmic_subtype == PM8916_SUBTYPE))
+		(revid_data->pmic_type == PM8916_V1P1_TYPE) &&
+		(revid_data->pmic_subtype == PM8916_V1P1_SUBTYPE))
 			return QPNP_REV_ID_8916_1_1;
 	else if ((revid_data->rev1 == PM8916_V2P0_REV1) &&
 		(revid_data->rev2 == PM8916_V2P0_REV2) &&
 		(revid_data->rev3 == PM8916_V2P0_REV3) &&
 		(revid_data->rev4 == PM8916_V2P0_REV4) &&
-		(revid_data->pmic_subtype == PM8916_SUBTYPE))
+		(revid_data->pmic_type == PM8916_V2P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8916_V2P0_SUBTYPE))
 			return QPNP_REV_ID_8916_2_0;
 	else if ((revid_data->rev1 == PM8909_V1P0_REV1) &&
 		(revid_data->rev2 == PM8909_V1P0_REV2) &&
 		(revid_data->rev3 == PM8909_V1P0_REV3) &&
 		(revid_data->rev4 == PM8909_V1P0_REV4) &&
-		(revid_data->pmic_subtype == PM8909_SUBTYPE))
+		(revid_data->pmic_type == PM8909_V1P0_TYPE) &&
+		(revid_data->pmic_subtype == PM8909_V1P0_SUBTYPE))
 			return QPNP_REV_ID_8909_1_0;
 	else if ((revid_data->rev1 == PM8909_V1P1_REV1) &&
 		(revid_data->rev2 == PM8909_V1P1_REV2) &&
 		(revid_data->rev3 == PM8909_V1P1_REV3) &&
 		(revid_data->rev4 == PM8909_V1P1_REV4) &&
-		(revid_data->pmic_subtype == PM8909_SUBTYPE))
+		(revid_data->pmic_type == PM8909_V1P1_TYPE) &&
+		(revid_data->pmic_subtype == PM8909_V1P1_SUBTYPE))
 			return QPNP_REV_ID_8909_1_1;
-	else if ((revid_data->rev4 == PM8950_V1P0_REV4) &&
-		(revid_data->pmic_subtype == PM8950_SUBTYPE))
-			return QPNP_REV_ID_PM8950_1_0;
 	else
 		return -EINVAL;
 }
@@ -2282,9 +2089,7 @@ int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 	struct qpnp_adc_amux *adc_channel_list;
 	struct qpnp_adc_properties *adc_prop;
 	struct qpnp_adc_amux_properties *amux_prop;
-	int count_adc_channel_list = 0, decimation = 0, rc = 0, i = 0;
-	int decimation_tm_hc = 0, fast_avg_setup_tm_hc = 0, cal_val_hc = 0;
-	bool adc_hc;
+	int count_adc_channel_list = 0, decimation, rc = 0, i = 0;
 
 	if (!node)
 		return -EINVAL;
@@ -2301,14 +2106,17 @@ int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 
 	adc_prop = devm_kzalloc(&spmi->dev, sizeof(struct qpnp_adc_properties),
 					GFP_KERNEL);
-	if (!adc_prop)
+	if (!adc_prop) {
+		dev_err(&spmi->dev, "Unable to allocate memory\n");
 		return -ENOMEM;
-
+	}
 	adc_channel_list = devm_kzalloc(&spmi->dev,
 		((sizeof(struct qpnp_adc_amux)) * count_adc_channel_list),
 				GFP_KERNEL);
-	if (!adc_channel_list)
+	if (!adc_channel_list) {
+		dev_err(&spmi->dev, "Unable to allocate memory\n");
 		return -ENOMEM;
+	}
 
 	amux_prop = devm_kzalloc(&spmi->dev,
 		sizeof(struct qpnp_adc_amux_properties) +
@@ -2320,33 +2128,10 @@ int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 
 	adc_qpnp->adc_channels = adc_channel_list;
 	adc_qpnp->amux_prop = amux_prop;
-	adc_hc = adc_qpnp->adc_hc;
-	adc_prop->adc_hc = adc_hc;
-
-	if (of_device_is_compatible(node, "qcom,qpnp-adc-tm-hc")) {
-		rc = of_property_read_u32(node, "qcom,decimation",
-						&decimation_tm_hc);
-		if (rc) {
-			pr_err("Invalid decimation property\n");
-			return -EINVAL;
-		}
-
-		rc = of_property_read_u32(node,
-			"qcom,fast-avg-setup", &fast_avg_setup_tm_hc);
-		if (rc) {
-			pr_err("Invalid fast average setup with %d\n", rc);
-			return -EINVAL;
-		}
-
-		if ((fast_avg_setup_tm_hc) > ADC_FAST_AVG_SAMPLE_16) {
-			pr_err("Max average support is 2^16\n");
-			return -EINVAL;
-		}
-	}
 
 	for_each_child_of_node(node, child) {
-		int channel_num, scaling = 0, post_scaling = 0;
-		int fast_avg_setup, calib_type = 0, rc, hw_settle_time = 0;
+		int channel_num, scaling, post_scaling, hw_settle_time;
+		int fast_avg_setup, calib_type = 0, rc;
 		const char *calibration_param, *channel_name;
 
 		channel_name = of_get_property(child,
@@ -2361,7 +2146,12 @@ int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 			pr_err("Invalid channel num\n");
 			return -EINVAL;
 		}
-
+		rc = of_property_read_u32(child, "qcom,decimation",
+								&decimation);
+		if (rc) {
+			pr_err("Invalid channel decimation property\n");
+			return -EINVAL;
+		}
 		if (!of_device_is_compatible(node, "qcom,qpnp-iadc")) {
 			rc = of_property_read_u32(child,
 				"qcom,hw-settle-time", &hw_settle_time);
@@ -2387,66 +2177,22 @@ int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 				pr_err("Invalid calibration type\n");
 				return -EINVAL;
 			}
-			if (!strcmp(calibration_param, "absolute")) {
-				if (adc_hc)
-					calib_type = ADC_HC_ABS_CAL;
-				else
-					calib_type = CALIB_ABSOLUTE;
-			} else if (!strcmp(calibration_param, "ratiometric")) {
-				if (adc_hc)
-					calib_type = ADC_HC_RATIO_CAL;
-				else
-					calib_type = CALIB_RATIOMETRIC;
-			} else if (!strcmp(calibration_param, "no_cal")) {
-				if (adc_hc)
-					calib_type = ADC_HC_NO_CAL;
-				else {
-					pr_err("%s: Invalid calibration property\n",
-						__func__);
-					return -EINVAL;
-				}
-			} else {
+			if (!strcmp(calibration_param, "absolute"))
+				calib_type = CALIB_ABSOLUTE;
+			else if (!strcmp(calibration_param, "ratiometric"))
+				calib_type = CALIB_RATIOMETRIC;
+			else {
 				pr_err("%s: Invalid calibration property\n",
 						__func__);
 				return -EINVAL;
 			}
 		}
-
-		/* ADC_TM_HC fast avg setting is common across channels */
-		if (!of_device_is_compatible(node, "qcom,qpnp-adc-tm-hc")) {
-			rc = of_property_read_u32(child,
+		rc = of_property_read_u32(child,
 				"qcom,fast-avg-setup", &fast_avg_setup);
-			if (rc) {
-				pr_err("Invalid channel fast average setup\n");
-				return -EINVAL;
-			}
-		} else {
-			fast_avg_setup = fast_avg_setup_tm_hc;
+		if (rc) {
+			pr_err("Invalid channel fast average setup\n");
+			return -EINVAL;
 		}
-
-		/* ADC_TM_HC decimation setting is common across channels */
-		if (!of_device_is_compatible(node, "qcom,qpnp-adc-tm-hc")) {
-			rc = of_property_read_u32(child,
-				"qcom,decimation", &decimation);
-			if (rc) {
-				pr_err("Invalid decimation\n");
-				return -EINVAL;
-			}
-		} else {
-			decimation = decimation_tm_hc;
-		}
-
-		if (of_device_is_compatible(node, "qcom,qpnp-vadc-hc")) {
-			rc = of_property_read_u32(child, "qcom,cal-val",
-							&cal_val_hc);
-			if (rc) {
-				pr_debug("Use calibration value from timer\n");
-				adc_channel_list[i].cal_val = ADC_TIMER_CAL;
-			} else {
-				adc_channel_list[i].cal_val = cal_val_hc;
-			}
-		}
-
 		/* Individual channel properties */
 		adc_channel_list[i].name = (char *)channel_name;
 		adc_channel_list[i].channel_num = channel_num;
@@ -2495,47 +2241,6 @@ int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 	}
 
 	init_completion(&adc_qpnp->adc_rslt_completion);
-
-	if (of_get_property(node, "hkadc_ldo-supply", NULL)) {
-		adc_qpnp->hkadc_ldo = regulator_get(&spmi->dev,
-				"hkadc_ldo");
-		if (IS_ERR(adc_qpnp->hkadc_ldo)) {
-			pr_err("hkadc_ldo-supply node not found\n");
-			return -EINVAL;
-		}
-
-		rc = regulator_set_voltage(adc_qpnp->hkadc_ldo,
-				QPNP_VADC_LDO_VOLTAGE_MIN,
-				QPNP_VADC_LDO_VOLTAGE_MAX);
-		if (rc < 0) {
-			pr_err("setting voltage for hkadc_ldo failed\n");
-			return rc;
-		}
-
-		rc = regulator_set_optimum_mode(adc_qpnp->hkadc_ldo,
-				100000);
-		if (rc < 0) {
-			pr_err("hkadc_ldo optimum mode failed%d\n", rc);
-			return rc;
-		}
-	}
-
-	if (of_get_property(node, "hkadc_ok-supply", NULL)) {
-		adc_qpnp->hkadc_ldo_ok = regulator_get(&spmi->dev,
-				"hkadc_ok");
-		if (IS_ERR(adc_qpnp->hkadc_ldo_ok)) {
-			pr_err("hkadc_ok node not found\n");
-			return -EINVAL;
-		}
-
-		rc = regulator_set_voltage(adc_qpnp->hkadc_ldo_ok,
-				QPNP_VADC_OK_VOLTAGE_MIN,
-				QPNP_VADC_OK_VOLTAGE_MAX);
-		if (rc < 0) {
-			pr_err("setting voltage for hkadc-ldo-ok failed\n");
-			return rc;
-		}
-	}
 
 	return 0;
 }

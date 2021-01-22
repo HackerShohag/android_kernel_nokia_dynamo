@@ -86,7 +86,9 @@ config KPROBES_ON_FTRACE
 	 optimize on top of function tracing.
 
 config UPROBES
-	def_bool n
+	bool "Transparent user-space probes (EXPERIMENTAL)"
+	depends on UPROBE_EVENT && PERF_EVENTS
+	default n
 	select PERCPU_RWSEM
 	help
 	  Uprobes is the user-space counterpart to kprobes: they
@@ -98,6 +100,8 @@ config UPROBES
 	  ( These probes come in the form of single-byte breakpoints,
 	    managed by the kernel and kept transparent to the probed
 	    application. )
+
+	  If in doubt, say "N".
 
 config HAVE_64BIT_ALIGNED_ACCESS
 	def_bool 64BIT && !HAVE_EFFICIENT_UNALIGNED_ACCESS
@@ -279,6 +283,9 @@ config HAVE_PERF_USER_STACK_DUMP
 config HAVE_ARCH_JUMP_LABEL
 	bool
 
+config HAVE_ARCH_MUTEX_CPU_RELAX
+	bool
+
 config HAVE_RCU_TABLE_FREE
 	bool
 
@@ -322,17 +329,6 @@ config HAVE_ARCH_SECCOMP_FILTER
 	  - secure_computing return value is checked and a return value of -1
 	    results in the system call being skipped immediately.
 	  - seccomp syscall wired up
-
-	  For best performance, an arch should use seccomp_phase1 and
-	  seccomp_phase2 directly.  It should call seccomp_phase1 for all
-	  syscalls if TIF_SECCOMP is set, but seccomp_phase1 does not
-	  need to be called from a ptrace-safe context.  It must then
-	  call seccomp_phase2 if seccomp_phase1 returns anything other
-	  than SECCOMP_PHASE1_OK or SECCOMP_PHASE1_SKIP.
-
-	  As an additional optimization, an arch may provide seccomp_data
-	  directly to seccomp_phase1; this avoids multiple calls
-	  to the syscall_xyz helpers for every syscall.
 
 config SECCOMP_FILTER
 	def_bool y
@@ -411,15 +407,6 @@ config CC_STACKPROTECTOR_STRONG
 
 endchoice
 
-config HAVE_ARCH_WITHIN_STACK_FRAMES
-	bool
-	help
-	  An architecture should select this if it can walk the kernel stack
-	  frames to determine if an object is part of either the arguments
-	  or local variables (i.e. that it excludes saved return addresses,
-	  and similar) by implementing an inline arch_within_stack_frames(),
-	  which is used by CONFIG_HARDENED_USERCOPY.
-
 config HAVE_CONTEXT_TRACKING
 	bool
 	help
@@ -434,18 +421,6 @@ config HAVE_CONTEXT_TRACKING
 config HAVE_VIRT_CPU_ACCOUNTING
 	bool
 
-config HAVE_VIRT_CPU_ACCOUNTING_GEN
-	bool
-	default y if 64BIT
-	help
-	  With VIRT_CPU_ACCOUNTING_GEN, cputime_t becomes 64-bit.
-	  Before enabling this option, arch code must be audited
-	  to ensure there are no races in concurrent read/write of
-	  cputime_t. For example, reading/writing 64-bit cputime_t on
-	  some 32-bit arches may require multiple accesses, so proper
-	  locking is needed to protect against concurrent accesses.
-
-
 config HAVE_IRQ_TIME_ACCOUNTING
 	bool
 	help
@@ -453,9 +428,6 @@ config HAVE_IRQ_TIME_ACCOUNTING
 	  support irq time accounting and then call enable_sched_clock_irqtime().
 
 config HAVE_ARCH_TRANSPARENT_HUGEPAGE
-	bool
-
-config HAVE_ARCH_SOFT_DIRTY
 	bool
 
 config HAVE_MOD_ARCH_SPECIFIC
@@ -482,16 +454,6 @@ config HAVE_UNDERSCORE_SYMBOL_PREFIX
 	help
 	  Some architectures generate an _ in front of C symbols; things like
 	  module loading and assembly files need to know about this.
-
-config HAVE_IRQ_EXIT_ON_IRQ_STACK
-	bool
-	help
-	  Architecture doesn't only execute the irq handler on the irq stack
-	  but also irq_exit(). This way we can process softirqs on this irq
-	  stack instead of switching to a new one when we call __do_softirq()
-	  in the end of an hardirq.
-	  This spares a stack switch and improves cache usage on softirq
-	  processing.
 
 config HAVE_ARCH_MMAP_RND_BITS
 	bool
@@ -560,13 +522,6 @@ config ARCH_MMAP_RND_COMPAT_BITS
 
 	  This value can be changed after boot using the
 	  /proc/sys/vm/mmap_rnd_compat_bits tunable
-
-config ARCH_HAS_ELF_RANDOMIZE
-	bool
-	help
-	  An architecture supports choosing randomized locations for
-	  stack, mmap, brk, and ET_DYN. Defined functions:
-	  - arch_mmap_rnd()
 
 #
 # ABI hall of shame

@@ -258,7 +258,6 @@
 
 		fih,mdss-dsi-write-reg-command-state = "dsi_hs_mode";
 		fih,default-cabc-mode = <0>;
-		qcom,mdss-dsi-tx-eot-append;
 	};
 };
 

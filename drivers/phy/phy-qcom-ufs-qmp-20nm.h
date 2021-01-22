@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,7 +15,7 @@
 #ifndef UFS_QCOM_PHY_QMP_20NM_H_
 #define UFS_QCOM_PHY_QMP_20NM_H_
 
-#include "phy-qcom-ufs-i.h"
+#include <linux/phy/phy-qcom-ufs.h>
 
 /* QCOM UFS PHY control registers */
 
@@ -30,7 +30,6 @@
 #define QSERDES_COM_PLL_CNTRL			COM_OFF(0x14)
 #define QSERDES_COM_PLL_IP_SETI			COM_OFF(0x24)
 #define QSERDES_COM_CORE_CLK_IN_SYNC_SEL	COM_OFF(0x28)
-#define QSERDES_COM_BIAS_EN_CLKBUFLR_EN		COM_OFF(0x30)
 #define QSERDES_COM_PLL_CP_SETI			COM_OFF(0x34)
 #define QSERDES_COM_PLL_IP_SETP			COM_OFF(0x38)
 #define QSERDES_COM_PLL_CP_SETP			COM_OFF(0x3C)
@@ -101,8 +100,6 @@
 #define UFS_PHY_RX_MIN_SAVE_CONFIG_TIME_CAPABILITY	PHY_OFF(0xE8)
 #define UFS_PHY_RX_PWM_BURST_CLOSURE_LENGTH_CAPABILITY	PHY_OFF(0xFC)
 #define UFS_PHY_RX_MIN_ACTIVATETIME_CAPABILITY		PHY_OFF(0x100)
-#define UFS_PHY_LINECFG_DISABLE				PHY_OFF(0x134)
-#define UFS_PHY_RX_SIGDET_CTRL3				PHY_OFF(0x14c)
 #define UFS_PHY_RMMI_ATTR_CTRL			PHY_OFF(0x160)
 #define UFS_PHY_RMMI_RX_CFGUPDT_L1	(1 << 7)
 #define UFS_PHY_RMMI_TX_CFGUPDT_L1	(1 << 6)
@@ -119,7 +116,6 @@
 #define UFS_PHY_PCS_READY_STATUS		PHY_OFF(0x174)
 
 #define UFS_PHY_TX_LANE_ENABLE_MASK		0x3
-#define UFS_PHY_RX_LINECFG_DISABLE_BIT		BIT(1)
 
 /*
  * This structure represents the 20nm specific phy.
@@ -135,7 +131,6 @@ struct ufs_qcom_phy_qmp_20nm {
 
 static struct ufs_qcom_phy_calibration phy_cal_table_rate_A_1_2_0[] = {
 	UFS_QCOM_PHY_CAL_ENTRY(UFS_PHY_POWER_DOWN_CONTROL, 0x01),
-	UFS_QCOM_PHY_CAL_ENTRY(UFS_PHY_RX_SIGDET_CTRL3, 0x0D),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_PLL_VCOTAIL_EN, 0xe1),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_PLL_CRCTRL, 0xcc),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_SYSCLK_EN_SEL_TXBAND, 0x08),
@@ -178,12 +173,10 @@ static struct ufs_qcom_phy_calibration phy_cal_table_rate_A_1_2_0[] = {
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_TX_LANE_MODE(1), 0x68),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_RX_RX_EQU_ADAPTOR_CNTRL2(1), 0xdc),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_RX_RX_EQU_ADAPTOR_CNTRL2(0), 0xdc),
-	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_BIAS_EN_CLKBUFLR_EN, 0x3),
 };
 
 static struct ufs_qcom_phy_calibration phy_cal_table_rate_A_1_3_0[] = {
 	UFS_QCOM_PHY_CAL_ENTRY(UFS_PHY_POWER_DOWN_CONTROL, 0x01),
-	UFS_QCOM_PHY_CAL_ENTRY(UFS_PHY_RX_SIGDET_CTRL3, 0x0D),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_PLL_VCOTAIL_EN, 0xe1),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_PLL_CRCTRL, 0xcc),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_SYSCLK_EN_SEL_TXBAND, 0x08),
@@ -225,7 +218,6 @@ static struct ufs_qcom_phy_calibration phy_cal_table_rate_A_1_3_0[] = {
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_TX_LANE_MODE(1), 0x68),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_RX_RX_EQU_ADAPTOR_CNTRL2(1), 0xdc),
 	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_RX_RX_EQU_ADAPTOR_CNTRL2(0), 0xdc),
-	UFS_QCOM_PHY_CAL_ENTRY(QSERDES_COM_BIAS_EN_CLKBUFLR_EN, 0x3),
 };
 
 static struct ufs_qcom_phy_calibration phy_cal_table_rate_B[] = {

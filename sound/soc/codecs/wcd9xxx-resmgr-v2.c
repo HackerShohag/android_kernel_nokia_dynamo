@@ -75,6 +75,7 @@ static void wcd_resmgr_cdc_specific_get_clk(struct wcd9xxx_resmgr_v2 *resmgr,
 						int clk_users)
 {
 	/* Caller of this function should have acquired BG_CLK lock */
+	WCD9XXX_V2_BG_CLK_UNLOCK(resmgr);
 	if (clk_users) {
 		if (resmgr->resmgr_cb &&
 		    resmgr->resmgr_cb->cdc_rco_ctrl) {
@@ -83,6 +84,8 @@ static void wcd_resmgr_cdc_specific_get_clk(struct wcd9xxx_resmgr_v2 *resmgr,
 								true);
 		}
 	}
+	/* Acquire BG_CLK lock before return */
+	WCD9XXX_V2_BG_CLK_LOCK(resmgr);
 }
 
 void wcd_resmgr_post_ssr_v2(struct wcd9xxx_resmgr_v2 *resmgr)
@@ -321,8 +324,7 @@ static int wcd_resmgr_disable_clk_rco(struct wcd9xxx_resmgr_v2 *resmgr)
 {
 	if ((resmgr->clk_rco_users <= 0) ||
 	    (resmgr->clk_type == WCD_CLK_OFF)) {
-		pr_err("%s: rco_clk_users = %d, clk_type = %d, cannot disable\n",
-			__func__, resmgr->clk_rco_users, resmgr->clk_type);
+		pr_err("%s: No RCO Clk users, cannot disable\n", __func__);
 		return -EINVAL;
 	}
 
@@ -428,7 +430,7 @@ int wcd_resmgr_disable_clk_block(struct wcd9xxx_resmgr_v2 *resmgr,
  */
 struct wcd9xxx_resmgr_v2 *wcd_resmgr_init(
 		struct wcd9xxx_core_resource *core_res,
-		struct snd_soc_codec *codec)
+		struct snd_soc_codec *codec, u8 intf_type)
 {
 	struct wcd9xxx_resmgr_v2 *resmgr;
 
@@ -447,6 +449,7 @@ struct wcd9xxx_resmgr_v2 *wcd_resmgr_init(
 	resmgr->codec = codec;
 	resmgr->core_res = core_res;
 	resmgr->sido_input_src = SIDO_SOURCE_INTERNAL;
+	resmgr->intf_type = intf_type;
 
 	return resmgr;
 }
@@ -483,7 +486,6 @@ int wcd_resmgr_post_init(struct wcd9xxx_resmgr_v2 *resmgr,
 	}
 
 	resmgr->codec = codec;
-	resmgr->resmgr_cb = resmgr_cb;
 
 	return 0;
 }

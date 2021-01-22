@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -73,8 +73,6 @@ void sharedmem_qmi_add_entry(struct sharemem_qmi_entry *qmi_entry)
 	struct shared_addr_list *list_entry;
 
 	list_entry = kzalloc(sizeof(*list_entry), GFP_KERNEL);
-
-	/* If we cannot add the entry log the failure and bail */
 	if (list_entry == NULL) {
 		pr_err("Alloc of new list entry failed\n");
 		return;
@@ -119,7 +117,7 @@ static int get_buffer_for_client(u32 id, u32 size, u64 *address)
 				list_entry->entry.request_count++;
 				result = 0;
 			} else {
-				pr_err("Shared mem req too large for id=%u\n",
+				pr_err("Shared mem req too large for id=%u",
 					id);
 				result = -ENOMEM;
 			}
@@ -131,7 +129,7 @@ static int get_buffer_for_client(u32 id, u32 size, u64 *address)
 	up_read(&sharedmem_list_lock);
 
 	if (client_found != 1) {
-		pr_err("Unknown client id %u\n", id);
+		pr_err("Unknown client id %u", id);
 		result = -ENOENT;
 	}
 	return result;
@@ -154,7 +152,7 @@ static int sharedmem_qmi_get_buffer(void *conn_h, void *req_handle, void *req)
 		return result;
 
 	if (address == 0) {
-		pr_err("Entry found for client id= 0x%X but address is zero\n",
+		pr_err("Entry found for client id = 0x%X but address is zero",
 			get_buffer_req->client_id);
 		return -ENOMEM;
 	}
@@ -336,25 +334,25 @@ static void debugfs_init(void)
 	mutex_init(&dbg_buf_lock);
 	dir_ent = debugfs_create_dir("rmt_storage", NULL);
 	if (IS_ERR(dir_ent)) {
-		pr_err("Failed to create debug_fs directory\n");
+		pr_err("Failed to create debug_fs directory");
 		return;
 	}
 
 	f_ent = debugfs_create_file("info", 0400, dir_ent, NULL, &debug_ops);
 	if (IS_ERR(f_ent)) {
-		pr_err("Failed to create debug_fs info file\n");
+		pr_err("Failed to create debug_fs info file");
 		return;
 	}
 
 	f_ent = debugfs_create_file("rfsa", 0200, dir_ent, NULL, &rfsa_fops);
 	if (IS_ERR(f_ent)) {
-		pr_err("Failed to create debug_fs rfsa file\n");
+		pr_err("Failed to create debug_fs rfsa file");
 		return;
 	}
 
 	f_ent = debugfs_create_file("rmts", 0200, dir_ent, NULL, &rmts_fops);
 	if (IS_ERR(f_ent)) {
-		pr_err("Failed to create debug_fs rmts file\n");
+		pr_err("Failed to create debug_fs rmts file");
 		return;
 	}
 }
@@ -370,7 +368,7 @@ static void sharedmem_qmi_svc_recv_msg(struct work_struct *work)
 	int rc;
 
 	do {
-		pr_debug("Notified about a Receive Event\n");
+		pr_debug("%s: Notified about a Receive Event", __func__);
 	} while ((rc = qmi_recv_msg(sharedmem_qmi_svc_handle)) == 0);
 
 	if (rc != -ENOMSG)

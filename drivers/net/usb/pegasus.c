@@ -1159,7 +1159,7 @@ static int pegasus_probe(struct usb_interface *intf,
 
 	net->watchdog_timeo = PEGASUS_TX_TIMEOUT;
 	net->netdev_ops = &pegasus_netdev_ops;
-	net->ethtool_ops = &ops;
+	SET_ETHTOOL_OPS(net, &ops);
 	pegasus->mii.dev = net;
 	pegasus->mii.mdio_read = mdio_read;
 	pegasus->mii.mdio_write = mdio_write;
@@ -1194,7 +1194,7 @@ static int pegasus_probe(struct usb_interface *intf,
 		goto out3;
 	queue_delayed_work(pegasus_workqueue, &pegasus->carrier_check,
 			   CARRIER_CHECK_DELAY);
-	dev_info(&intf->dev, "%s, %s, %pKM\n", net->name,
+	dev_info(&intf->dev, "%s, %s, %pM\n", net->name,
 		 usb_dev_id[dev_index].name, net->dev_addr);
 	return 0;
 

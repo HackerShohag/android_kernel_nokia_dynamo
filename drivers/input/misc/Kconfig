@@ -104,16 +104,6 @@ config INPUT_HBTP_INPUT
 	  To compile this driver as a module, choose M here: the
 	  module will be called hbtp_input.
 
-config HBTP_INPUT_SECURE_TOUCH
-	bool "Secure Touch support for HBTP Input driver"
-	depends on INPUT_HBTP_INPUT
-	help
-	  This option enables the Secure Touch functionality of the HBTP
-	  Input driver.
-
-	  Say Y to enable this functionality.
-	  If unsure, say N.
-
 config INPUT_PCSPKR
 	tristate "PC Speaker support"
 	depends on PCSPKR_PLATFORM
@@ -165,17 +155,6 @@ config INPUT_M68K_BEEP
 	tristate "M68k Beeper support"
 	depends on M68K
 
-config INPUT_MAX77693_HAPTIC
-	tristate "MAXIM MAX77693 haptic controller support"
-	depends on MFD_MAX77693 && PWM
-	select INPUT_FF_MEMLESS
-	help
-	  This option enables support for the haptic controller on
-	  MAXIM MAX77693 chip.
-
-	  To compile this driver as module, choose M here: the
-	  module will be called max77693-haptic.
-
 config INPUT_MAX8925_ONKEY
 	tristate "MAX8925 ONKEY support"
 	depends on MFD_MAX8925
@@ -188,7 +167,7 @@ config INPUT_MAX8925_ONKEY
 
 config INPUT_MAX8997_HAPTIC
 	tristate "MAXIM MAX8997 haptic controller support"
-	depends on PWM && MFD_MAX8997
+	depends on HAVE_PWM && MFD_MAX8997
 	select INPUT_FF_MEMLESS
 	help
 	  This option enables device driver support for the haptic controller
@@ -200,7 +179,7 @@ config INPUT_MAX8997_HAPTIC
 
 config INPUT_MC13783_PWRBUTTON
 	tristate "MC13783 ON buttons"
-	depends on MFD_MC13XXX
+	depends on MFD_MC13783
 	help
 	  Support the ON buttons of MC13783 PMIC as an input device
 	  reporting power button status.
@@ -230,7 +209,7 @@ config INPUT_MPU3050
 	  module will be called mpu3050.
 
 config SENSORS_MPU6050
-	tristate "MPU6050 6-axis gyroscope and acceleromater combo"
+	tristate "MPU6050 6-axix gyroscope + acceleromater combo"
 	depends on I2C
 	help
 	  Say Y here if you want to support InvenSense MPU6050
@@ -239,27 +218,15 @@ config SENSORS_MPU6050
 	  To compile this driver as a module, choose M here: the
 	  module will be called mpu6050.
 
-config SENSORS_AKM8963
-	tristate "AKM8963 3-axis electronic compass sensor driver"
+config SENSORS_LIS3DH
+	tristate "ST LIS3DH 3-axis digital acceleromater"
 	depends on I2C
-	default n
 	help
-	  Say Y here if you want to enable the akm8963 ecompass sensor
-	  driver.
+	  Say Y here if you want to support STMicroelectronics LIS3DH
+	  accelerometer connected via an I2C bus.
 
 	  To compile this driver as a module, choose M here: the
-	  module will be called akm8963.
-
-config SENSORS_STK3X1X
-	tristate "STK3X1X device driver"
-	depends on I2C
-	default n
-	help
-	  Say Y here you want to enable for the sitronix stk3x1x
-	  light and proximity sensors driver.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called stk3x1x.
+	  module will be called lis3dh_acc.
 
 config SENSORS_LIS3DSH
         tristate "ST LIS3DSH 3-axis digital acceleromater"
@@ -301,15 +268,6 @@ config INPUT_GP2A
 	  To compile this driver as a module, choose M here: the
 	  module will be called gp2ap002a00f.
 
-config INPUT_GPIO_BEEPER
-	tristate "Generic GPIO Beeper support"
-	depends on GPIOLIB
-	help
-	  Say Y here if you have a beeper connected to a GPIO pin.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called gpio-beeper.
-
 config INPUT_GPIO_TILT_POLLED
 	tristate "Polled GPIO tilt switch"
 	depends on GPIOLIB
@@ -348,7 +306,7 @@ config INPUT_COBALT_BTNS
 
 config INPUT_WISTRON_BTNS
 	tristate "x86 Wistron laptop button interface"
-	depends on X86_32
+	depends on X86 && !X86_64
 	select INPUT_POLLDEV
 	select INPUT_SPARSEKMAP
 	select NEW_LEDS
@@ -538,6 +496,18 @@ config INPUT_GPIO
 	help
 	  Say Y here if you want to support gpio based keys, wheels etc...
 
+config INPUT_ISA1200_FF_MEMLESS
+	tristate "ISA1200 haptic ff-memless support"
+	depends on I2C
+	select INPUT_FF_MEMLESS
+	help
+	  ISA1200 is a high performance enhanced haptic chip.
+	  Say Y here if you want to support ISA1200 connected via I2C,
+	  and select N if you are unsure.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called isa1200-ff-memless.
+
 config HP_SDC_RTC
 	tristate "HP SDC Real Time Clock"
 	depends on (GSC || HP300) && SERIO
@@ -545,16 +515,6 @@ config HP_SDC_RTC
 	help
 	  Say Y here if you want to support the built-in real time clock
 	  of the HP SDC controller.
-
-config INPUT_PALMAS_PWRBUTTON
-	tristate "Palmas Power button Driver"
-	depends on MFD_PALMAS
-	help
-	  Say Y here if you want to enable power key reporting via the
-	  Palmas family of PMICs.
-
-	  To compile this driver as a module, choose M here. The module will
-	  be called palmas_pwrbutton.
 
 config INPUT_PCF50633_PMU
 	tristate "PCF50633 PMU events"
@@ -575,7 +535,7 @@ config INPUT_PCF8574
 
 config INPUT_PWM_BEEPER
 	tristate "PWM beeper support"
-	depends on PWM
+	depends on HAVE_PWM || PWM
 	help
 	  Say Y here to get support for PWM based beeper devices.
 
@@ -751,59 +711,44 @@ config INPUT_XEN_KBDDEV_FRONTEND
 	  To compile this driver as a module, choose M here: the
 	  module will be called xen-kbdfront.
 
-config INPUT_SIRFSOC_ONKEY
-	bool "CSR SiRFSoC power on/off/suspend key support"
-	depends on ARCH_SIRF && OF
-	default y
-	help
-	  Say Y here if you want to support for the SiRFSoC power on/off/suspend key
-	  in Linux, after you press the onkey, system will suspend.
+config BMP18X
+       tristate "BMP18X digital pressure sensor"
+       depends on (I2C ) && SYSFS
+       help
+         If you say yes here you get support for Bosch Sensortec
+	 digital pressure sensors BMP085, BMP180.
 
-	  If unsure, say N.
+         To compile this driver as a module, choose M here: the
+         module will be called bmp18x-core.
 
-config INPUT_IDEAPAD_SLIDEBAR
-	tristate "IdeaPad Laptop Slidebar"
-	depends on INPUT
-	depends on SERIO_I8042
+config BMP18X_I2C
+       tristate "support I2C bus connection"
+       depends on BMP18X && I2C
+       help
+         Say Y here if you want to support Bosch Sensortec digital pressure
+         sensor hooked to an I2C bus.
+
+         To compile this driver as a module, choose M here: the
+         module will be called bmp18x-i2c.
+
+config SENSORS_MMA8X5X
+	tristate "MMA8451/MMA8452/MMA8453/MMA8652/MMA8653 device driver"
+	depends on I2C && SYSFS
+	select INPUT_POLLDEV
+	default n
 	help
-	  Say Y here if you have an IdeaPad laptop with a slidebar.
+	  If you say yes here you get support for the Freescale MMA8451/
+	  MMA8452/MMA8453/MMA8652/MMA8653  sensors.
 
 	  To compile this driver as a module, choose M here: the
-	  module will be called ideapad_slidebar.
+	  module will be called mma8x5x.
 
-config INPUT_SOC_BUTTON_ARRAY
-	tristate "Windows-compatible SoC Button Array"
-	depends on KEYBOARD_GPIO
+config SENSORS_MMA_POSITION
+	int "MMA8x5x Accelerate Sensor Position Setting"
+	depends on SENSORS_MMA8X5X
+	default "0"
 	help
-	  Say Y here if you have a SoC-based tablet that originally
-	  runs Windows 8.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called soc_button_array.
-
-config INPUT_DRV260X_HAPTICS
-	tristate "TI DRV260X haptics support"
-	depends on INPUT && I2C && GPIOLIB
-	select INPUT_FF_MEMLESS
-	select REGMAP_I2C
-	help
-	  Say Y to enable support for the TI DRV260X haptics driver.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called drv260x-haptics.
-
-config INPUT_DRV2667_HAPTICS
-	tristate "TI DRV2667 haptics support"
-	depends on INPUT && I2C
-	select INPUT_FF_MEMLESS
-	select REGMAP_I2C
-	help
-	  Say Y to enable support for the TI DRV2667 haptics driver.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called drv260x-haptics.
-
-source "drivers/input/misc/ots_pat9125/Kconfig"
+	  this provide the sensor position setting , value is between 0~7
 
 config SENSORS_AP3426
 	tristate "AP3426 3-in-1 digital ALPS+PS+IRLED sensor driver"
@@ -835,6 +780,16 @@ config SENSORS_MMC3416X
 	  To compile this driver as a module, choose M here: the
 	  module will be called mmc3416x.
 
+config SENSORS_MMC3X30
+	tristate "MMC3X30KJ 3-axis magnetic sensor driver"
+	depends on I2C
+	help
+	  Say Y here if you want to enable the MMC3X30KJ magnetic sensor
+	  driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mmc3X30.
+
 config SENSORS_AKM09911
 	tristate "AKM09911 3-axis electronic compass sensor driver"
 	depends on I2C
@@ -844,6 +799,39 @@ config SENSORS_AKM09911
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called akm09911.
+
+config SENSORS_AKM8963
+	tristate "AKM8963 3-axis electronic compass sensor driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here if you want to enable the akm8963 ecompass sensor
+	  driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called akm8963.
+
+config SENSORS_STK3X1X
+	tristate "STK3X1X device driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here you want to enable for the sitronix stk3x1x
+	  light and proximity sensors driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called stk3x1x.
+
+config SENSORS_CAPELLA_CM36283
+	tristate "CM36283 proximity and light sensor"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable the CM36283 Proximity
+	  Sensor with Ambient Light Sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called CM36283.
 
 config SENSORS_BMA2X2
 	tristate "BMA2x2 acceleration sensor support"
@@ -880,6 +868,47 @@ config DOUBLE_TAP
 	help
 	 If you say yes here, you get support Bosch double tap sensor function
 
+config SENSORS_BMI058
+	tristate "BMI058 Sensor Support"
+	depends on (SENSORS_BMG || SENSORS_BMA2X2)
+	help
+	 If you say yes here, you get support for Bosch Sensortec's
+	 sensor driver of BMI058.
+
+config SENSORS_BMI160
+	tristate "BMI160 Sensor Support"
+	depends on I2C || SPI_MASTER
+	help
+	 If you say yes here, you get support for Bosch Sensortec's
+         sensor driver of BMI160.
+
+config SENSORS_BMI160_I2C
+	tristate "support I2C bus communication"
+	depends on SENSORS_BMI160 && I2C
+	help
+	 If you say yes here, you get support Bosch Sensortec's BMI160 sensor hooked to an I2C bus.
+
+config BMI160_MAG_INTERFACE_SUPPORT
+	tristate "BMI160 Sensor mag interface support"
+	depends on SENSORS_BMI160
+	help
+	 If you say yes here, you get support for Bosch Sensortec's
+	 sensor driver of BMI160 with mag sensor support.
+
+config SENSORS_BMI160_ENABLE_INT1
+	tristate "BMI160 sensor interrupt INT1 support"
+	depends on SENSORS_BMI160
+	help
+	 If you say yes here, you get INT1 support for Bosch Sensortec
+	 sensors BMI160.
+
+config SENSORS_BMI160_ENABLE_INT2
+	tristate "BMI160 sensor interrupt INT2 support"
+	depends on SENSORS_BMI160
+	help
+	 If you say yes here, you get INT2 support for Bosch Sensortec
+	 sensors BMI160.
+
 config INPUT_KIONIX_ACCEL
 	tristate "KIONIX_ACCEL"
 	depends on I2C=y
@@ -888,5 +917,5 @@ config INPUT_KIONIX_ACCEL
 	  accelerometer.
 	  This driver can also be built as a module. If so, the module will be
 	  called kionix_accel.
-
 endif
+

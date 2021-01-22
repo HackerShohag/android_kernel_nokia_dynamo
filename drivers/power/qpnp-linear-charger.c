@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -135,7 +135,7 @@
 
 /* usb_interrupts */
 
-#define POC_CHECK_TEMP_PERIOD_MS	10000 // add for discharging requirement
+#define POC_CHECK_TEMP_PERIOD_MS	10000 // add for fih discharging requirement
 
 /* bbs log */
 #define QPNPCHG_PROBE_ERROR do {printk("BBox;%s: Probe error\n", __func__); printk("BBox::UEC;11::0\n");} while (0)
@@ -218,13 +218,12 @@ static enum power_supply_property msm_batt_power_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
-	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_MAX, // add for FTM
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_COOL_TEMP,
 	POWER_SUPPLY_PROP_WARM_TEMP,
 	POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL,
-	POWER_SUPPLY_PROP_TECHNOLOGY, //  add for FAO-412
+	POWER_SUPPLY_PROP_TECHNOLOGY, // add for FAO-412
 	POWER_SUPPLY_PROP_MANUFACTURER, // add for Battery ID
 // add for Power Monitor {{
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
@@ -413,7 +412,7 @@ struct qpnp_lbc_chip {
 	struct led_classdev		led_cdev;
 	struct dentry			*debug_root;
 
-	struct delayed_work		fih_temp_work; // add for discharging requirement
+	struct delayed_work		fih_temp_work; // add for fih discharging requirement
 	int fih_temp_work_cancel;
 	int ftm_mode; // add for FTM
 	int batt_unknown; // add for Battery ID
@@ -716,7 +715,7 @@ static int qpnp_lbc_charger_enable(struct qpnp_lbc_chip *chip, int reason,
 
 	pr_debug("reason=%d requested_enable=%d disabled_status=%d\n",
 					reason, enable, disabled);
-// add for discharging requirement {{
+// add for fih discharging requirement {{
 	if(reason == SOC)
 	{
 		if (enable)
@@ -731,7 +730,7 @@ static int qpnp_lbc_charger_enable(struct qpnp_lbc_chip *chip, int reason,
 			chip->fih_temp_work_cancel = 1; 
 		}
 	}	
-// add for discharging requirement }}
+// add for fih discharging requirement }}
 	
 	if (enable)
 		disabled &= ~reason;
@@ -1413,24 +1412,6 @@ static int get_prop_capacity(struct qpnp_lbc_chip *chip)
 	return DEFAULT_CAPACITY;
 }
 
-static int get_prop_charge_count(struct qpnp_lbc_chip *chip)
-{
-	union power_supply_propval ret = {0,};
-
-	if (!chip->bms_psy)
-		chip->bms_psy = power_supply_get_by_name("bms");
-
-	if (chip->bms_psy) {
-		chip->bms_psy->get_property(chip->bms_psy,
-				POWER_SUPPLY_PROP_CHARGE_COUNTER, &ret);
-		return ret.intval;
-	} else {
-		pr_debug("No BMS supply registerd return 0\n");
-	}
-
-	return 0;
-}
-
 #define DEFAULT_TEMP		-1280
 static int get_prop_batt_temp(struct qpnp_lbc_chip *chip)
 {
@@ -1864,9 +1845,6 @@ static int qpnp_batt_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		val->intval = get_prop_capacity(chip);
 		break;
-	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
-		val->intval = get_prop_charge_count(chip);
-		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		val->intval = get_prop_current_now(chip);
 		break;
@@ -2089,7 +2067,7 @@ static ssize_t get_batt_unknown(struct device *dev,
 static DEVICE_ATTR(batt_unknown, 0644,
 	get_batt_unknown, set_batt_unknown);
 // add for Battery ID }}
-// add for discharging requirement {{
+// add for fih discharging requirement {{
 
 static void fih_charging_temp_check(struct qpnp_lbc_chip *chip, int temp)
 {
@@ -2179,7 +2157,7 @@ static void fih_temp_check_work(struct work_struct *work)
 				msecs_to_jiffies(POC_CHECK_TEMP_PERIOD_MS));
 	}
 }
-// add for discharging requirement }}
+// add for fih discharging requirement }}
 
 
 static void qpnp_lbc_jeita_adc_notification(enum qpnp_tm_state state, void *ctx)
@@ -2829,7 +2807,7 @@ static irqreturn_t qpnp_lbc_usbin_valid_irq_handler(int irq, void *_chip)
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
 	}
 
-// add for discharging requirement {{
+// add for fih discharging requirement {{
 	if(usb_present)
 	{
 		pr_debug("enable fih_temp_work\n");
@@ -2841,7 +2819,7 @@ static irqreturn_t qpnp_lbc_usbin_valid_irq_handler(int irq, void *_chip)
 		pr_debug("disable fih_temp_work\n");
 		chip->fih_temp_work_cancel = 1; 
 	}	
-// add for discharging requirement }}
+// add for fih discharging requirement }}
 
 	if(!usb_present && tchg_timer_expired)
 	{
@@ -2970,10 +2948,10 @@ static irqreturn_t qpnp_lbc_chg_failed_irq_handler(int irq, void *_chip)
 		power_supply_changed(&chip->batt_psy);
 	}
 
-// add for discharging requirement {{
+// add for fih discharging requirement {{
 	pr_debug("disable fih_temp_work \n");
 	chip->fih_temp_work_cancel = 1;  
-// add for discharging requirement }}
+// add for fih discharging requirement }}
 
 	return IRQ_HANDLED;
 }
@@ -3041,10 +3019,10 @@ static irqreturn_t qpnp_lbc_chg_done_irq_handler(int irq, void *_chip)
 	pr_debug("power supply changed batt_psy\n");
 	power_supply_changed(&chip->batt_psy);
 
-	// add for discharging requirement {{
+	// add for fih discharging requirement {{
 	pr_debug("disable fih_temp_work\n");
 	chip->fih_temp_work_cancel = 1; 
-	// add for discharging requirement }}
+	// add for fih discharging requirement }}
 
 	return IRQ_HANDLED;
 }
@@ -3525,8 +3503,8 @@ static int qpnp_lbc_parallel_probe(struct spmi_device *spmi)
 		return rc;
 	}
 
-	chip->parallel_psy.name		= "parallel";
-	chip->parallel_psy.type		= POWER_SUPPLY_TYPE_PARALLEL;
+	chip->parallel_psy.name		= "usb-parallel";
+	chip->parallel_psy.type		= POWER_SUPPLY_TYPE_USB_PARALLEL;
 	chip->parallel_psy.get_property	= qpnp_lbc_parallel_get_property;
 	chip->parallel_psy.set_property	= qpnp_lbc_parallel_set_property;
 	chip->parallel_psy.properties	= qpnp_lbc_parallel_properties;
@@ -3712,10 +3690,10 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 // add for Battery ID
 	device_create_file(chip->dev,	&dev_attr_batt_unknown);
 	
-// add for discharging requirement {{
+// add for fih discharging requirement {{
 	INIT_DELAYED_WORK(&chip->fih_temp_work, fih_temp_check_work); 
 	chip->fih_temp_work_cancel = 0;
-// add for discharging requirement }}
+// add for fih discharging requirement }}
 	
 
 // add for FTM {{
@@ -3765,14 +3743,14 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 			get_prop_battery_voltage_now(chip),
 			get_prop_capacity(chip));
 
-// add for discharging requirement {{
+// add for fih discharging requirement {{
 	if(chip->cfg_charging_disabled == 0 && qpnp_lbc_is_usb_chg_plugged_in(chip))
 	{
 		pr_info("enable fih_temp_work \n");
 		chip->fih_temp_work_cancel = 0; 
 		schedule_delayed_work(&chip->fih_temp_work, msecs_to_jiffies(POC_CHECK_TEMP_PERIOD_MS));
 	}
-// add for discharging requirement }}
+// add for fih discharging requirement }}
 	return 0;
 
 unregister_batt:
@@ -3803,7 +3781,7 @@ static int qpnp_lbc_remove(struct spmi_device *spmi)
 {
 	struct qpnp_lbc_chip *chip = dev_get_drvdata(&spmi->dev);
 
-	cancel_delayed_work_sync(&chip->fih_temp_work); // add for discharging requirement	
+	cancel_delayed_work_sync(&chip->fih_temp_work); // add for fih discharging requirement	
 	if (chip->supported_feature_flag & VDD_TRIM_SUPPORTED) {
 		alarm_cancel(&chip->vddtrim_alarm);
 		cancel_work_sync(&chip->vddtrim_work);

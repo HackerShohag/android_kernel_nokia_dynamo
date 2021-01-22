@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -119,8 +119,6 @@ enum battery_type {
  * @iterm_ua:		termination current of the battery when charging
  *			to 100%
  * @batt_id_kohm:	the best matched battery id resistor value
- * @fastchg_current_ma: maximum fast charge current
- * @fg_cc_cv_threshold_mv: CC to CV threashold voltage
  */
 
 struct bms_battery_data {
@@ -139,16 +137,8 @@ struct bms_battery_data {
 	int			cutoff_uv;
 	int			iterm_ua;
 	int			batt_id_kohm;
-	int			fastchg_current_ma;
-	int			fg_cc_cv_threshold_mv;
 	const char		*battery_type;
 };
-
-#define is_between(left, right, value) \
-		(((left) >= (right) && (left) >= (value) \
-			&& (value) >= (right)) \
-		|| ((left) <= (right) && (left) <= (value) \
-			&& (value) <= (right)))
 
 #if defined(CONFIG_PM8921_BMS) || \
 	defined(CONFIG_PM8921_BMS_MODULE) || \
@@ -173,6 +163,7 @@ int interpolate_slope(struct pc_temp_ocv_lut *pc_temp_ocv,
 int interpolate_acc(struct ibat_temp_acc_lut *ibat_acc_lut,
 					int batt_temp, int ibat);
 int linear_interpolate(int y0, int x0, int y1, int x1, int x);
+int is_between(int left, int right, int value);
 #else
 static inline int interpolate_fcc(struct single_row_lut *fcc_temp_lut,
 			int batt_temp)
@@ -205,6 +196,10 @@ static inline int interpolate_slope(struct pc_temp_ocv_lut *pc_temp_ocv,
 	return -EINVAL;
 }
 static inline int linear_interpolate(int y0, int x0, int y1, int x1, int x)
+{
+	return -EINVAL;
+}
+static inline int is_between(int left, int right, int value)
 {
 	return -EINVAL;
 }

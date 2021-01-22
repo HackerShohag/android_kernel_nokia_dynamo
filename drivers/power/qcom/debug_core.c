@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, 2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,9 +19,8 @@
 #include <linux/debugfs.h>
 #include <linux/ctype.h>
 #include <linux/cpu.h>
-#include "soc/qcom/msm-core.h"
 
-#define MAX_PSTATES 50
+#define MAX_PSTATES 20
 #define NUM_OF_PENTRY 3 /* number of variables for ptable node */
 #define NUM_OF_EENTRY 2 /* number of variables for enable node */
 
@@ -249,7 +248,6 @@ static ssize_t msm_core_enable_write(struct file *file,
 
 	if (cpu_possible(cpu)) {
 		struct core_debug *node = &per_cpu(c_dgfs, cpu);
-
 		if (arg[FREQ_OFFSET]) {
 			msm_core_data[cpu].ptable = node->head;
 			msm_core_data[cpu].len = node->len;
@@ -261,8 +259,6 @@ static ssize_t msm_core_enable_write(struct file *file,
 		node->enabled = arg[FREQ_OFFSET];
 	}
 	ret = len;
-	blocking_notifier_call_chain(
-			get_power_update_notifier(), cpu, NULL);
 
 done:
 	kfree(kbuf);

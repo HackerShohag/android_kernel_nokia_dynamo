@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,10 +15,10 @@
 #include <linux/qcom_iommu.h>
 
 #include "msm_isp32.h"
-#include "msm_isp_util_32.h"
-#include "msm_isp_axi_util_32.h"
-#include "msm_isp_stats_util_32.h"
-#include "msm_isp_32.h"
+#include "msm_isp_util.h"
+#include "msm_isp_axi_util.h"
+#include "msm_isp_stats_util.h"
+#include "msm_isp.h"
 #include "msm.h"
 #include "msm_camera_io_util.h"
 
@@ -386,20 +386,16 @@ static void msm_vfe32_clear_status_reg(struct vfe_device *vfe_dev)
 static void msm_vfe32_process_reset_irq(struct vfe_device *vfe_dev,
 	uint32_t irq_status0, uint32_t irq_status1)
 {
-	if (irq_status1 & BIT(23)) {
-		if (vfe_dev->vfe_reset_timeout_processed == 1) {
-			pr_err("%s:vfe reset was processed.\n", __func__);
-			return;
-		}
+	if (irq_status1 & BIT(23))
 		complete(&vfe_dev->reset_complete);
-	}
 }
 
 static void msm_vfe32_process_halt_irq(struct vfe_device *vfe_dev,
 	uint32_t irq_status0, uint32_t irq_status1)
 {
-	if (irq_status1 & (1 << 24))
+	if (irq_status1 & (1 << 24)) {
 		msm_camera_io_w_mb(0, vfe_dev->vfe_base + 0x1D8);
+	}
 }
 
 static void msm_vfe32_process_epoch_irq(struct vfe_device *vfe_dev,
@@ -658,8 +654,7 @@ static void msm_vfe32_process_reg_update(struct vfe_device *vfe_dev,
 
 	return;
 }
-//QC patch++ e1m-3892
-#ifdef E1M3892
+//QC patch2 ++
 static int msm_vfe32_check_stats_cfg(struct vfe_device *vfe_dev)
 {
 	int ret = 0, rc = 0;
@@ -674,6 +669,7 @@ static int msm_vfe32_check_stats_cfg(struct vfe_device *vfe_dev)
 	voffset = (0xFFF & (msm_camera_io_r(vfe_dev->vfe_base + 0x700) >> 16));
 	width = (0x1FF & msm_camera_io_r(vfe_dev->vfe_base + 0x704));
 	height = (0xFF & (msm_camera_io_r(vfe_dev->vfe_base + 0x704) >> 10));
+
 	if (((hoffset * 2) + (64 * (width + 1))) == camif_width) {
 		if (((voffset * 2) + (48 * (height + 1))) == camif_height)
 			ret = 1;
@@ -684,46 +680,28 @@ static int msm_vfe32_check_stats_cfg(struct vfe_device *vfe_dev)
 		(0x7F & (msm_camera_io_r(vfe_dev->vfe_base + 0x704) >> 19));
 	return ret;
 }
-#endif
-//QC patch--
+//--
 static void msm_vfe32_reg_update(
 	struct vfe_device *vfe_dev, uint32_t input_src)
 {
 	msm_camera_io_w_mb(input_src, vfe_dev->vfe_base + 0x260);
-//QC patch++ e1m-3892
-#ifdef E1M3892
+	//QC patch2 ++
 	vfe_dev->fullsize_stats = msm_vfe32_check_stats_cfg(vfe_dev);
-	//pr_err("[QUALCOMM_DEBUG] %d", vfe_dev->fullsize_stats);
-#endif
-//QC patch--
+	pr_err("[QUALCOMM_DEBUG] %d", vfe_dev->fullsize_stats);
+	//--
 }
 
 static long msm_vfe32_reset_hardware(struct vfe_device *vfe_dev,
 	uint32_t first_start, uint32_t blocking)
 {
 	long rc = 0;
-	uint32_t irq_status1;
-
 	if (blocking) {
 		init_completion(&vfe_dev->reset_complete);
 		msm_camera_io_w_mb(0x3FF, vfe_dev->vfe_base + 0x4);
-		vfe_dev->vfe_reset_timeout_processed = 0;
 		rc = wait_for_completion_timeout(
-			&vfe_dev->reset_complete, msecs_to_jiffies(500));
+			&vfe_dev->reset_complete, msecs_to_jiffies(50));
 	} else {
 		msm_camera_io_w_mb(0x3FF, vfe_dev->vfe_base + 0x4);
-	}
-
-	if (blocking && rc <= 0) {
-		/*read ISP status register*/
-		irq_status1 = msm_camera_io_r(vfe_dev->vfe_base + 0x30);
-		pr_err("%s: handling vfe reset time out error. irq_status1 0x%x\n",
-			__func__, irq_status1);
-		if (irq_status1 & BIT(23)) {
-			pr_err("%s: vfe reset has done actually\n", __func__);
-			vfe_dev->vfe_reset_timeout_processed = 1;
-			return 1;
-		}
 	}
 	return rc;
 }
@@ -1181,7 +1159,6 @@ static void msm_vfe32_cfg_axi_ub_equal_default(struct vfe_device *vfe_dev)
 	uint32_t prop_size = 0;
 	uint32_t wm_ub_size;
 	uint64_t delta;
-
 	for (i = 0; i < axi_data->hw_info->num_wm; i++) {
 		if (axi_data->free_wm[i] > 0) {
 			num_used_wms++;
@@ -1215,7 +1192,6 @@ static void msm_vfe32_cfg_axi_ub_equal_slicing(struct vfe_device *vfe_dev)
 	uint32_t ub_offset = 0;
 	uint32_t final_ub_slice_size;
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
-
 	for (i = 0; i < axi_data->hw_info->num_wm; i++) {
 		if (ub_offset + VFE32_EQUAL_SLICE_UB > VFE32_AXI_SLICE_UB) {
 			final_ub_slice_size = VFE32_AXI_SLICE_UB - ub_offset;
@@ -1235,7 +1211,6 @@ static void msm_vfe32_cfg_axi_ub_equal_slicing(struct vfe_device *vfe_dev)
 static void msm_vfe32_cfg_axi_ub(struct vfe_device *vfe_dev)
 {
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
-
 	axi_data->wm_ub_cfg_policy = MSM_WM_UB_CFG_DEFAULT;
 	if (axi_data->wm_ub_cfg_policy == MSM_WM_UB_EQUAL_SLICING)
 		msm_vfe32_cfg_axi_ub_equal_slicing(vfe_dev);
@@ -1345,7 +1320,6 @@ static void msm_vfe32_stats_cfg_comp_mask(struct vfe_device *vfe_dev,
 	uint32_t i = 0;
 	atomic_t *stats_comp;
 	struct msm_vfe_stats_shared_data *stats_data = &vfe_dev->stats_data;
-
 	stats_mask = stats_mask & 0x7F;
 
 	for (i = 0;

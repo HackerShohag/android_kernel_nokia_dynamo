@@ -1,7 +1,7 @@
 /*
  * Driver for the Semtech SX150x I2C GPIO Expanders
  *
- * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2010, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -72,9 +72,6 @@ struct sx150x_platform_data {
 	int      irq_summary;
 	unsigned irq_base;
 	bool     reset_during_probe;
-	struct regulator	*vdd_in;
-	int     vdd_in_minv;
-	int     vdd_in_maxv;
 };
 
 #endif /* __LINUX_I2C_SX150X_H */

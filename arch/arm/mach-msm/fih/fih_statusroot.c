@@ -7,7 +7,7 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
-//#include <mach/msm_iomap.h>
+#include <mach/msm_iomap.h>
 #include <linux/slab.h>
 
 #ifdef CONFIG_DIAG_OVER_USB

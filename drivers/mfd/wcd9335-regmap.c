@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1458,13 +1458,13 @@ int wcd9335_regmap_register_patch(struct regmap *regmap, int version)
 	case TASHA_VERSION_1_1:
 		regcache_cache_only(regmap, true);
 		rc = regmap_multi_reg_write(regmap, wcd9335_1_x_defaults,
-					    ARRAY_SIZE(wcd9335_1_x_defaults));
+					ARRAY_SIZE(wcd9335_1_x_defaults));
 		regcache_cache_only(regmap, false);
 		break;
 	case TASHA_VERSION_2_0:
 		regcache_cache_only(regmap, true);
 		rc = regmap_multi_reg_write(regmap, wcd9335_2_0_defaults,
-					    ARRAY_SIZE(wcd9335_2_0_defaults));
+					ARRAY_SIZE(wcd9335_2_0_defaults));
 		regcache_cache_only(regmap, false);
 		break;
 	default:
@@ -1517,11 +1517,11 @@ static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 		return true;
 
 	if ((reg >= WCD9335_CDC_ANC0_IIR_COEFF_1_CTL) &&
-	    (reg <= WCD9335_CDC_ANC0_FB_GAIN_CTL))
+	    (reg <= WCD9335_CDC_ANC0_IIR_COEFF_2_CTL))
 		return true;
 
 	if ((reg >= WCD9335_CDC_ANC1_IIR_COEFF_1_CTL) &&
-	    (reg <= WCD9335_CDC_ANC1_FB_GAIN_CTL))
+	    (reg <= WCD9335_CDC_ANC1_IIR_COEFF_2_CTL))
 		return true;
 	/*
 	 * CPE inbox and outbox registers are volatile
@@ -1530,10 +1530,6 @@ static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 	 */
 	if (reg >= WCD9335_CPE_SS_MEM_PTR_0 &&
 	    reg <= WCD9335_CPE_SS_OUTBOX2_ACK)
-		return true;
-
-	if (reg >= WCD9335_RCO_CAL_OUT_1 &&
-	    reg <= WCD9335_RCO_CAL_OUT_5)
 		return true;
 
 	switch (reg) {

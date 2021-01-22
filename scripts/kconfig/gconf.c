@@ -1404,7 +1404,7 @@ static void display_tree(struct menu *menu)
 		    && (tree == tree2))
 			continue;
 /*
-		if (((menu != &rootmenu) && !(menu->flags & MENU_ROOT))
+                if (((menu != &rootmenu) && !(menu->flags & MENU_ROOT))
 		    || (view_mode == FULL_VIEW)
 		    || (view_mode == SPLIT_VIEW))*/
 
@@ -1498,12 +1498,9 @@ int main(int ac, char *av[])
 		case 'a':
 			//showAll = 1;
 			break;
-		case 's':
-			conf_set_message_callback(NULL);
-			break;
 		case 'h':
 		case '?':
-			printf("%s [-s] <config>\n", av[0]);
+			printf("%s <config>\n", av[0]);
 			exit(0);
 		}
 		name = av[2];

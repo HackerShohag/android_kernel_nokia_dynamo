@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2009, 2012-2014, The Linux Foundation.
+/* Copyright (c) 2008-2009, 2012-2013, 2016, The Linux Foundation.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -173,7 +173,7 @@ int diag_hdlc_decode(struct diag_hdlc_decode_type *hdlc)
 	unsigned int i;
 	uint8_t src_byte;
 
-	int pkt_bnd = HDLC_INCOMPLETE;
+	int pkt_bnd = 0;
 	int msg_start;
 
 	if (hdlc && hdlc->src_ptr && hdlc->dest_ptr &&
@@ -213,7 +213,7 @@ int diag_hdlc_decode(struct diag_hdlc_decode_type *hdlc)
 					as end of packet */
 				dest_ptr[len++] = src_byte;
 				i++;
-				pkt_bnd = HDLC_COMPLETE;
+				pkt_bnd = 1;
 				break;
 			} else {
 				dest_ptr[len++] = src_byte;
@@ -242,7 +242,7 @@ int crc_check(uint8_t *buf, uint16_t len)
 	 * of data and 3 bytes for CRC
 	 */
 	if (!buf || len < 4) {
-		pr_err_ratelimited("diag: In %s, invalid packet or length, buf: 0x%p, len: %d",
+		pr_err_ratelimited("diag: In %s, invalid packet or length, buf: 0x%pK, len: %d",
 				   __func__, buf, len);
 		return -EIO;
 	}

@@ -1,6 +1,3 @@
-/*The following structure has been taken
-from Monkey's Audio SDK with permission*/
-
 #ifndef _UAPI_MSM_AUDIO_APE_H
 #define _UAPI_MSM_AUDIO_APE_H
 

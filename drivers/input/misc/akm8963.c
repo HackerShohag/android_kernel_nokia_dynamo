@@ -1,6 +1,6 @@
 /* drivers/input/misc/akm8963.c - akm8963 compass driver
  *
- * Copyright (c) 2015, 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  *
  * Copyright (C) 2007-2008 HTC Corporation.
  * Author: Hou-Kun Chen <houkun.chen@gmail.com>
@@ -149,7 +149,7 @@ static int akm_i2c_rxdata(
 {
 	int ret;
 
-	struct i2c_msg msgs[2] = {
+	struct i2c_msg msgs[] = {
 		{
 			.addr = i2c->addr,
 			.flags = 0,
@@ -161,15 +161,15 @@ static int akm_i2c_rxdata(
 			.flags = I2C_M_RD,
 			.len = length,
 			.buf = rxData,
-		}
+		},
 	};
 	uint8_t addr = rxData[0];
 
-	ret = i2c_transfer(i2c->adapter, msgs, 2);
+	ret = i2c_transfer(i2c->adapter, msgs, ARRAY_SIZE(msgs));
 	if (ret < 0) {
 		dev_err(&i2c->dev, "%s: transfer failed.", __func__);
 		return ret;
-	} else if (ret != 2) {
+	} else if (ret != ARRAY_SIZE(msgs)) {
 		dev_err(&i2c->dev, "%s: transfer failed(size error).\n",
 				__func__);
 		return -ENXIO;
@@ -188,18 +188,20 @@ static int akm_i2c_txdata(
 {
 	int ret;
 
-	struct i2c_msg msg = {
-		.addr = i2c->addr,
-		.flags = 0,
-		.len = length,
-		.buf = txData
+	struct i2c_msg msg[] = {
+		{
+			.addr = i2c->addr,
+			.flags = 0,
+			.len = length,
+			.buf = txData,
+		},
 	};
 
-	ret = i2c_transfer(i2c->adapter, &msg, 1);
+	ret = i2c_transfer(i2c->adapter, msg, ARRAY_SIZE(msg));
 	if (ret < 0) {
 		dev_err(&i2c->dev, "%s: transfer failed.", __func__);
 		return ret;
-	} else if (ret != 1) {
+	} else if (ret != ARRAY_SIZE(msg)) {
 		dev_err(&i2c->dev, "%s: transfer failed(size error).",
 				__func__);
 		return -ENXIO;
@@ -359,7 +361,6 @@ static void AKECS_SetYPR(
 	int *rbuf)
 {
 	uint32_t ready;
-
 	dev_vdbg(&akm->i2c->dev, "%s: flag =0x%X", __func__, rbuf[0]);
 	dev_vdbg(&akm->input->dev, "  Acc [LSB]   : %6d,%6d,%6d stat=%d",
 		rbuf[1], rbuf[2], rbuf[3], rbuf[4]);
@@ -393,7 +394,7 @@ static void AKECS_SetYPR(
 		input_report_abs(akm->input, ABS_Y, rbuf[6]);
 		input_report_abs(akm->input, ABS_Z, rbuf[7]);
 	}
-	/* Report sensor information */
+	/* Report fusion sensor information */
 	if (ready & FUSION_DATA_READY) {
 		/* Orientation */
 		input_report_abs(akm->input, ABS_HAT0Y, rbuf[9]);
@@ -465,7 +466,8 @@ static int AKECS_GetData_Poll(
 	}
 
 	/* Check ST bit */
-	if (!(AKM_DRDY_IS_HIGH(buffer[0]))) {
+	if (!(AKM_DRDY_IS_HIGH(buffer[0])))
+	{
 		dev_dbg(&akm->i2c->dev, "DRDY is low. Use last value.\n");
 		return 0;
 	}
@@ -527,8 +529,8 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	int32_t ypr_buf[AKM_YPR_DATA_SIZE];		/* for SET_YPR */
 	int32_t delay[AKM_NUM_SENSORS];	/* for GET_DELAY */
 	int16_t acc_buf[3];	/* for GET_ACCEL */
-	uint8_t mode = 0;	/* for SET_MODE*/
-	int status;		/* for OPEN/CLOSE_STATUS */
+	uint8_t mode;			/* for SET_MODE*/
+	int status;			/* for OPEN/CLOSE_STATUS */
 	int ret = 0;		/* Return value. */
 
 	switch (cmd) {
@@ -820,10 +822,10 @@ static void remove_device_binary_attributes(
  * files :
  *  - enable_acc    [rw] [t] : enable flag for accelerometer
  *  - enable_mag    [rw] [t] : enable flag for magnetometer
- *  - enable_fusion [rw] [t] : enable flag for sensor
+ *  - enable_fusion [rw] [t] : enable flag for fusion sensor
  *  - delay_acc     [rw] [t] : delay in nanosecond for accelerometer
  *  - delay_mag     [rw] [t] : delay in nanosecond for magnetometer
- *  - delay_fusion  [rw] [t] : delay in nanosecond for sensor
+ *  - delay_fusion  [rw] [t] : delay in nanosecond for fusion sensor
  *
  * debug :
  *  - mode       [w]  [t] : E-Compass mode
@@ -840,7 +842,6 @@ static void akm_compass_sysfs_update_status(
 	struct akm_compass_data *akm)
 {
 	uint32_t en;
-
 	mutex_lock(&akm->val_mutex);
 	en = akm->enable_flag;
 	mutex_unlock(&akm->val_mutex);
@@ -953,7 +954,7 @@ static ssize_t akm_compass_sysfs_enable_store(
 	if (0 == count)
 		return 0;
 
-	if (kstrtol(buf, AKM_BASE_NUM, &en))
+	if (strict_strtol(buf, AKM_BASE_NUM, &en))
 		return -EINVAL;
 
 	en = en ? 1 : 0;
@@ -1008,7 +1009,7 @@ static ssize_t akm_enable_mag_store(
 		dev_get_drvdata(dev), buf, count, MAG_DATA_FLAG);
 }
 
-/***** Sensor ***/
+/***** Fusion ***/
 static ssize_t akm_enable_fusion_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1101,7 +1102,7 @@ static ssize_t akm_delay_mag_store(
 		dev_get_drvdata(dev), buf, count, MAG_DATA_FLAG);
 }
 
-/***** Sensor ***/
+/***** Fusion ***/
 static ssize_t akm_delay_fusion_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1161,7 +1162,7 @@ static ssize_t akm_sysfs_mode_store(
 	if (0 == count)
 		return 0;
 
-	if (kstrtol(buf, AKM_BASE_NUM, &mode))
+	if (strict_strtol(buf, AKM_BASE_NUM, &mode))
 		return -EINVAL;
 
 	if (AKECS_SetMode(akm, (uint8_t)mode) < 0)
@@ -1272,8 +1273,23 @@ static struct device_attribute akm_compass_attributes[] = {
 	__ATTR_NULL,
 };
 
+#define __BIN_ATTR(name_, mode_, size_, private_, read_, write_) \
+	{ \
+		.attr    = { .name = __stringify(name_), .mode = mode_ }, \
+		.size    = size_, \
+		.private = private_, \
+		.read    = read_, \
+		.write   = write_, \
+	}
+
+#define __BIN_ATTR_NULL \
+	{ \
+		.attr   = { .name = NULL }, \
+	}
+
 static struct bin_attribute akm_compass_bin_attributes[] = {
-	__BIN_ATTR(accel, 0220, NULL, akm_bin_accel_write, 6),
+	__BIN_ATTR(accel, 0220, 6, NULL,
+				NULL, akm_bin_accel_write),
 	__BIN_ATTR_NULL
 };
 
@@ -1570,6 +1586,7 @@ static int akm_compass_power_set(struct akm_compass_data *data, bool on)
 			goto err_vio_disable;
 		}
 		data->power_enabled = false;
+		return rc;
 	} else if (on && !data->power_enabled) {
 		rc = regulator_enable(data->vdd);
 		if (rc) {
@@ -1591,18 +1608,19 @@ static int akm_compass_power_set(struct akm_compass_data *data, bool on)
 		 * Use 80ms to make sure it meets the requirements.
 		 */
 		msleep(80);
+		return rc;
 	} else {
 		dev_warn(&data->i2c->dev,
 				"Power on=%d. enabled=%d\n",
 				on, data->power_enabled);
+		return rc;
 	}
-
-	return rc;
 
 err_vio_enable:
 	regulator_disable(data->vio);
 err_vdd_enable:
 	return rc;
+
 err_vio_disable:
 	if (regulator_enable(data->vdd))
 		dev_warn(&data->i2c->dev, "Regulator vdd enable failed\n");
@@ -1684,12 +1702,12 @@ static int akm_compass_parse_dt(struct device *dev,
 {
 	struct device_node *np = dev->of_node;
 	u32 temp_val;
-	int rc = 0;
+	int rc;
 
 	rc = of_property_read_u32(np, "ak,layout", &temp_val);
 	if (rc && (rc != -EINVAL)) {
 		dev_err(dev, "Unable to read akm,layout\n");
-		goto prop_read_err;
+		return rc;
 	} else {
 		pdata->layout = temp_val;
 	}
@@ -1713,10 +1731,7 @@ static int akm_compass_parse_dt(struct device *dev,
 	pdata->gpio_rstn = of_get_named_gpio_flags(dev->of_node,
 			"ak,gpio-rstn", 0, NULL);
 
-	return rc;
-
-prop_read_err:
-	return rc;
+	return 0;
 }
 #else
 static int akm_compass_parse_dt(struct device *dev,
@@ -1781,7 +1796,7 @@ static enum hrtimer_restart mag_timer_handle(struct hrtimer *hrtimer)
 
 static int mag_poll_thread(void *data)
 {
-	int ret = 0;
+	int ret;
 	struct akm_compass_data *akm = data;
 	ktime_t timestamp;
 	uint8_t dat_buf[AKM_SENSOR_DATA_SIZE];/* for GET_DATA */
@@ -1904,11 +1919,11 @@ exit:
 	return ret;
 }
 
-static int akm8963_compass_probe(
+int akm8963_compass_probe(
 		struct i2c_client *i2c,
 		const struct i2c_device_id *id)
 {
-	struct akm8963_platform_data *pdata = NULL;
+	struct akm8963_platform_data *pdata;
 	int err = 0;
 	int i;
 
@@ -1924,8 +1939,10 @@ static int akm8963_compass_probe(
 	/* Allocate memory for driver data */
 	s_akm = devm_kzalloc(&i2c->dev, sizeof(struct akm_compass_data),
 			GFP_KERNEL);
-	if (!s_akm)
+	if (!s_akm) {
+		dev_err(&i2c->dev, "Failed to allocate driver data\n");
 		return -ENOMEM;
+	}
 
 	/***** I2C initialization *****/
 	s_akm->i2c = i2c;
@@ -1970,7 +1987,7 @@ static int akm8963_compass_probe(
 		if (err) {
 			dev_err(
 			&i2c->dev,
-			"Unable to parse platform data err=%d\n",
+			"Unable to parse platfrom data err=%d\n",
 			err);
 			goto err_devm;
 		}
@@ -2198,5 +2215,7 @@ static void __exit akm_compass_exit(void)
 module_init(akm_compass_init);
 module_exit(akm_compass_exit);
 
+MODULE_AUTHOR("viral wang <viral_wang@htc.com>");
 MODULE_DESCRIPTION("AKM compass driver");
 MODULE_LICENSE("GPL");
+

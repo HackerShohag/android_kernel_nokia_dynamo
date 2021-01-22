@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -282,7 +282,7 @@ update(struct ctr_drbg_ctx_s *ctx, const uint8_t *data, size_t data_len)
 			rc = wait_for_completion_interruptible(
 				&ctx->aes_ctx.result.completion);
 			if (!rc && !ctx->aes_ctx.result.err) {
-				init_completion(&ctx->aes_ctx.result.completion);
+				INIT_COMPLETION(ctx->aes_ctx.result.completion);
 				break;
 			}
 		/* fall through */
@@ -510,7 +510,7 @@ ctr_drbg_generate_w_data(struct ctr_drbg_ctx_s *ctx,
 			rc = wait_for_completion_interruptible(
 				&ctx->aes_ctx.result.completion);
 			if (!rc && !ctx->aes_ctx.result.err) {
-				init_completion(&ctx->aes_ctx.result.completion);
+				INIT_COMPLETION(ctx->aes_ctx.result.completion);
 				break;
 			}
 			/* fall through */
@@ -568,8 +568,8 @@ ctr_drbg_generate_w_data(struct ctr_drbg_ctx_s *ctx,
 				rc = wait_for_completion_interruptible(
 					&ctx->aes_ctx.result.completion);
 				if (!rc && !ctx->aes_ctx.result.err) {
-					 init_completion(
-						&ctx->aes_ctx.result.completion);
+					INIT_COMPLETION(
+						ctx->aes_ctx.result.completion);
 					break;
 				}
 				/* fall through */
@@ -630,8 +630,8 @@ ctr_drbg_generate_w_data(struct ctr_drbg_ctx_s *ctx,
 				rc = wait_for_completion_interruptible(
 					&ctx->aes_ctx.result.completion);
 				if (!rc && !ctx->aes_ctx.result.err) {
-					init_completion(
-					&ctx->aes_ctx.result.completion);
+					INIT_COMPLETION(
+					ctx->aes_ctx.result.completion);
 					break;
 				}
 				/* fall through */
@@ -795,8 +795,8 @@ enum ctr_drbg_status_t df_bcc_func(struct ctr_drbg_ctx_s *ctx,
 			rc = wait_for_completion_interruptible(
 				&ctx->df_aes_ctx.result.completion);
 			if (!rc && !ctx->df_aes_ctx.result.err) {
-				init_completion(
-				&ctx->df_aes_ctx.result.completion);
+				INIT_COMPLETION(
+				ctx->df_aes_ctx.result.completion);
 				break;
 			}
 			/* fall through */
@@ -913,8 +913,8 @@ block_cipher_df(struct ctr_drbg_ctx_s *ctx,
 			rc = wait_for_completion_interruptible(
 				&ctx->df_aes_ctx.result.completion);
 			if (!rc && !ctx->df_aes_ctx.result.err) {
-				init_completion(
-					&ctx->df_aes_ctx.result.completion);
+				INIT_COMPLETION(
+					ctx->df_aes_ctx.result.completion);
 				break;
 			}
 			/* fall through */
@@ -935,3 +935,4 @@ out:
 	memset(temp, 0, 32);
 	return ret_val;
 }
+

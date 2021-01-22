@@ -1,6 +1,6 @@
 /* drivers/gpio/gpio-msm-smp2p.c
  *
- * Copyright (c) 2013-2014, 2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,10 +32,6 @@ struct smp2p_chip_dev {
 	int remote_pid;
 	bool is_inbound;
 	bool is_open;
-	bool in_shadow;
-	uint32_t shadow_value;
-	struct work_struct shadow_work;
-	spinlock_t shadow_lock;
 	struct notifier_block out_notifier;
 	struct notifier_block in_notifier;
 	struct msm_smp2p_out *out_handle;
@@ -127,27 +123,20 @@ static void smp2p_set_value(struct gpio_chip *cp, unsigned offset, int value)
 	struct smp2p_chip_dev *chip;
 	uint32_t data_set;
 	uint32_t data_clear;
-	bool send_irq;
 	int ret;
-	unsigned long flags;
 
 	if (!cp)
 		return;
 
 	chip = container_of(cp, struct smp2p_chip_dev, gpio);
+	if (!chip->is_open)
+		return;
 
 	if (chip->is_inbound) {
 		SMP2P_INFO("%s: '%s':%d virq %d invalid operation\n",
 			__func__, chip->name, chip->remote_pid,
 			chip->irq_base + offset);
 		return;
-	}
-
-	if (value & SMP2P_GPIO_NO_INT) {
-		value &= ~SMP2P_GPIO_NO_INT;
-		send_irq = false;
-	} else {
-		send_irq = true;
 	}
 
 	if (value) {
@@ -158,27 +147,8 @@ static void smp2p_set_value(struct gpio_chip *cp, unsigned offset, int value)
 		data_clear = 1 << offset;
 	}
 
-	spin_lock_irqsave(&chip->shadow_lock, flags);
-	if (!chip->is_open) {
-		chip->in_shadow = true;
-		chip->shadow_value &= ~data_clear;
-		chip->shadow_value |= data_set;
-		spin_unlock_irqrestore(&chip->shadow_lock, flags);
-		return;
-	}
-
-	if (chip->in_shadow) {
-		chip->in_shadow = false;
-		chip->shadow_value &= ~data_clear;
-		chip->shadow_value |= data_set;
-		ret = msm_smp2p_out_modify(chip->out_handle,
-				chip->shadow_value, 0x0, send_irq);
-		chip->shadow_value = 0x0;
-	} else {
-		ret = msm_smp2p_out_modify(chip->out_handle,
-				data_set, data_clear, send_irq);
-	}
-	spin_unlock_irqrestore(&chip->shadow_lock, flags);
+	ret = msm_smp2p_out_modify(chip->out_handle,
+			data_set, data_clear);
 
 	if (ret)
 		SMP2P_GPIO("'%s':%d gpio %d set to %d failed (%d)\n",
@@ -475,10 +445,11 @@ static void msm_summary_irq_handler(struct smp2p_chip_dev *chip,
 static void smp2p_add_irq_domain(struct smp2p_chip_dev *chip,
 	struct device_node *node)
 {
+	int ret;
 	int irq_base;
 
 	/* map GPIO pins to interrupts */
-	chip->irq_domain = irq_domain_add_linear(node, SMP2P_BITS_PER_ENTRY,
+	chip->irq_domain = irq_domain_add_linear(node, 0,
 			&smp2p_irq_domain_ops, chip);
 	if (!chip->irq_domain) {
 		SMP2P_ERR("%s: unable to create interrupt domain '%s':%d\n",
@@ -496,14 +467,21 @@ static void smp2p_add_irq_domain(struct smp2p_chip_dev *chip,
 	}
 
 	/* map the allocated irqs to gpios */
-	irq_domain_associate_many(chip->irq_domain, irq_base, 0,
-				  SMP2P_BITS_PER_ENTRY);
+	ret = irq_domain_associate_many(chip->irq_domain, irq_base, 0,
+							SMP2P_BITS_PER_ENTRY);
+	if (ret < 0) {
+		SMP2P_ERR("map virt irqs failed:%d name:%s pid:%d\n", ret,
+						chip->name, chip->remote_pid);
+		goto irq_map_fail;
+	}
 
 	chip->irq_base = irq_base;
 	SMP2P_DBG("create mapping:%d naem:%s pid:%d\n", chip->irq_base,
 						chip->name, chip->remote_pid);
 	return;
 
+irq_map_fail:
+	irq_free_descs(irq_base, SMP2P_BITS_PER_ENTRY);
 irq_alloc_fail:
 	irq_domain_remove(chip->irq_domain);
 domain_fail:
@@ -528,10 +506,8 @@ static int smp2p_gpio_out_notify(struct notifier_block *self,
 	switch (event) {
 	case SMP2P_OPEN:
 		chip->is_open = 1;
-		SMP2P_GPIO("%s: Opened out '%s':%d in_shadow[%d]\n", __func__,
-				chip->name, chip->remote_pid, chip->in_shadow);
-		if (chip->in_shadow)
-			schedule_work(&chip->shadow_work);
+		SMP2P_GPIO("%s: Opened out '%s':%d\n", __func__,
+				chip->name, chip->remote_pid);
 		break;
 	case SMP2P_ENTRY_UPDATE:
 		break;
@@ -574,37 +550,6 @@ static int smp2p_gpio_in_notify(struct notifier_block *self,
 }
 
 /**
- * smp2p_gpio_shadow_worker - Handles shadow updates of an entry.
- *
- * @work: Work Item scheduled to handle the shadow updates.
- */
-static void smp2p_gpio_shadow_worker(struct work_struct *work)
-{
-	struct smp2p_chip_dev *chip;
-	int ret;
-	unsigned long flags;
-
-	chip = container_of(work, struct smp2p_chip_dev, shadow_work);
-	spin_lock_irqsave(&chip->shadow_lock, flags);
-	if (chip->in_shadow) {
-		ret = msm_smp2p_out_modify(chip->out_handle,
-					chip->shadow_value, 0x0, true);
-
-		if (ret)
-			SMP2P_GPIO("'%s':%d shadow val[0x%x] failed(%d)\n",
-					chip->name, chip->remote_pid,
-					chip->shadow_value, ret);
-		else
-			SMP2P_GPIO("'%s':%d shadow val[0x%x]\n",
-					chip->name, chip->remote_pid,
-					chip->shadow_value);
-		chip->shadow_value = 0;
-		chip->in_shadow = false;
-	}
-	spin_unlock_irqrestore(&chip->shadow_lock, flags);
-}
-
-/**
  * Device tree probe function.
  *
  * @pdev:	 Pointer to device tree data.
@@ -629,8 +574,6 @@ static int smp2p_gpio_probe(struct platform_device *pdev)
 		goto fail;
 	}
 	spin_lock_init(&chip->irq_lock);
-	spin_lock_init(&chip->shadow_lock);
-	INIT_WORK(&chip->shadow_work, smp2p_gpio_shadow_worker);
 
 	/* parse device tree */
 	node = pdev->dev.of_node;
@@ -720,7 +663,9 @@ static int smp2p_gpio_probe(struct platform_device *pdev)
 
 	return 0;
 error:
-	gpiochip_remove(&chip->gpio);
+	if (gpiochip_remove(&chip->gpio))
+		SMP2P_ERR("%s: unable to Remove GPIO '%s'\n",
+				__func__, chip->name);
 
 fail:
 	kfree(chip);

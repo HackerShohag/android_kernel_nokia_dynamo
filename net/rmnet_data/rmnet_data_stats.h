@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,7 +39,6 @@ enum rmnet_skb_free_e {
 	RMNET_STATS_SKBFREE_DEAGG_UNKOWN_IP_TYP,
 	RMNET_STATS_SKBFREE_DEAGG_DATA_LEN_0,
 	RMNET_STATS_SKBFREE_INGRESS_BAD_MAP_CKSUM,
-	RMNET_STATS_SKBFREE_MAPC_UNSUPPORTED,
 	RMNET_STATS_SKBFREE_MAX
 };
 
@@ -49,7 +48,6 @@ enum rmnet_queue_xmit_e {
 	RMNET_STATS_QUEUE_XMIT_AGG_FILL_BUFFER,
 	RMNET_STATS_QUEUE_XMIT_AGG_TIMEOUT,
 	RMNET_STATS_QUEUE_XMIT_AGG_CPY_EXP_FAIL,
-	RMNET_STATS_QUEUE_XMIT_AGG_SKIP,
 	RMNET_STATS_QUEUE_XMIT_MAX
 };
 

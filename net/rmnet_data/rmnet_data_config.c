@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, 2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, 2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -629,13 +629,6 @@ void rmnet_config_netlink_msg_handler(struct sk_buff *skb)
 						rmnet_header->vnd.vnd_name);
 		break;
 
-	case RMNET_NETLINK_NEW_VND_WITH_NAME:
-		resp_rmnet->crd = RMNET_NETLINK_MSG_RETURNCODE;
-		resp_rmnet->return_code = rmnet_create_vnd_name(
-						rmnet_header->vnd.id,
-						rmnet_header->vnd.vnd_name);
-		break;
-
 	case RMNET_NETLINK_FREE_VND:
 		resp_rmnet->crd = RMNET_NETLINK_MSG_RETURNCODE;
 		/* Please check rmnet_vnd_free_dev documentation regarding
@@ -830,7 +823,8 @@ int rmnet_associate_network_device(struct net_device *dev)
 		return RMNET_CONFIG_INVALID_REQUEST;
 	}
 
-	config = kmalloc(sizeof(*config), GFP_ATOMIC);
+	config = (struct rmnet_phys_ep_conf_s *)
+		 kmalloc(sizeof(struct rmnet_phys_ep_conf_s), GFP_ATOMIC);
 
 	if (!config)
 		return RMNET_CONFIG_NOMEM;
@@ -1077,11 +1071,11 @@ int rmnet_create_vnd(int id)
 	struct net_device *dev;
 	ASSERT_RTNL();
 	LOGL("(%d);", id);
-	return rmnet_vnd_create_dev(id, &dev, NULL, 0);
+	return rmnet_vnd_create_dev(id, &dev, NULL);
 }
 
 /**
- * rmnet_create_vnd_prefix() - Create virtual network device node
+ * rmnet_create_vnd() - Create virtual network device node
  * @id:       RmNet virtual device node id
  * @prefix:   String prefix for device name
  *
@@ -1093,24 +1087,7 @@ int rmnet_create_vnd_prefix(int id, const char *prefix)
 	struct net_device *dev;
 	ASSERT_RTNL();
 	LOGL("(%d, \"%s\");", id, prefix);
-	return rmnet_vnd_create_dev(id, &dev, prefix, 0);
-}
-
-/**
- * rmnet_create_vnd_name() - Create virtual network device node
- * @id:       RmNet virtual device node id
- * @prefix:   String prefix for device name
- *
- * Return:
- *      - result of rmnet_vnd_create_dev()
- */
-int rmnet_create_vnd_name(int id, const char *name)
-{
-	struct net_device *dev;
-
-	ASSERT_RTNL();
-	LOGL("(%d, \"%s\");", id, name);
-	return rmnet_vnd_create_dev(id, &dev, name, 1);
+	return rmnet_vnd_create_dev(id, &dev, prefix);
 }
 
 /**
@@ -1131,6 +1108,7 @@ static void _rmnet_free_vnd_later(struct work_struct *work)
 	int i;
 	struct rmnet_free_vnd_work *fwork;
 	fwork = container_of(work, struct rmnet_free_vnd_work, work);
+
 	for (i = 0; i < fwork->count; i++)
 		rmnet_free_vnd(fwork->vnd_id[i]);
 	kfree(fwork);
@@ -1147,7 +1125,6 @@ static void rmnet_force_unassociate_device(struct net_device *dev)
 {
 	int i, j;
 	struct net_device *vndev;
-	struct rmnet_phys_ep_conf_s *config;
 	struct rmnet_logical_ep_conf_s *cfg;
 	struct rmnet_free_vnd_work *vnd_work;
 	ASSERT_RTNL();
@@ -1161,7 +1138,8 @@ static void rmnet_force_unassociate_device(struct net_device *dev)
 	}
 
 	trace_rmnet_unregister_cb_clear_vnds(dev);
-	vnd_work = kmalloc(sizeof(*vnd_work), GFP_KERNEL);
+	vnd_work = (struct rmnet_free_vnd_work *)
+		kmalloc(sizeof(struct rmnet_free_vnd_work), GFP_KERNEL);
 	if (!vnd_work) {
 		LOGH("%s", "Out of Memory");
 		return;
@@ -1170,8 +1148,8 @@ static void rmnet_force_unassociate_device(struct net_device *dev)
 	vnd_work->count = 0;
 
 	/* Check the VNDs for offending mappings */
-	for (i = 0, j = 0; i < RMNET_DATA_MAX_VND
-			   && j < RMNET_DATA_MAX_VND; i++) {
+	for (i = 0, j = 0; i < RMNET_DATA_MAX_VND &&
+				j < RMNET_DATA_MAX_VND; i++) {
 		vndev = rmnet_vnd_get_by_id(i);
 		if (!vndev) {
 			LOGL("VND %d not in use; skipping", i);
@@ -1184,12 +1162,6 @@ static void rmnet_force_unassociate_device(struct net_device *dev)
 			continue;
 		}
 		if (cfg->refcount && (cfg->egress_dev == dev)) {
-			/* Make sure the device is down before clearing any of
-			 * the mappings. Otherwise we could see a potential
-			 * race condition if packets are actively being
-			 * transmitted.
-			 */
-			dev_close(vndev);
 			rmnet_unset_logical_endpoint_config(vndev,
 						  RMNET_LOCAL_LOGICAL_ENDPOINT);
 			vnd_work->vnd_id[j] = i;
@@ -1203,15 +1175,6 @@ static void rmnet_force_unassociate_device(struct net_device *dev)
 		kfree(vnd_work);
 	}
 
-	config = _rmnet_get_phys_ep_config(dev);
-
-	if (config) {
-		cfg = &config->local_ep;
-
-		if (cfg && cfg->refcount)
-			rmnet_unset_logical_endpoint_config
-			(cfg->egress_dev, RMNET_LOCAL_LOGICAL_ENDPOINT);
-	}
 
 	/* Clear the mappings on the phys ep */
 	trace_rmnet_unregister_cb_clear_lepcs(dev);
@@ -1233,7 +1196,7 @@ static void rmnet_force_unassociate_device(struct net_device *dev)
 int rmnet_config_notify_cb(struct notifier_block *nb,
 				  unsigned long event, void *data)
 {
-	struct net_device *dev = netdev_notifier_info_to_dev(data);
+	struct net_device *dev = (struct net_device *)data;
 
 	if (!dev)
 		BUG();
@@ -1244,8 +1207,10 @@ int rmnet_config_notify_cb(struct notifier_block *nb,
 	case NETDEV_UNREGISTER_FINAL:
 	case NETDEV_UNREGISTER:
 		trace_rmnet_unregister_cb_entry(dev);
-		LOGH("Kernel is trying to unregister %s", dev->name);
-		rmnet_force_unassociate_device(dev);
+		if (_rmnet_is_physical_endpoint_associated(dev)) {
+			LOGH("Kernel is trying to unregister %s", dev->name);
+			rmnet_force_unassociate_device(dev);
+		}
 		trace_rmnet_unregister_cb_exit(dev);
 		break;
 

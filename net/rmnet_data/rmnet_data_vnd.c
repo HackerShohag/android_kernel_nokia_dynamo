@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -61,7 +61,6 @@ struct rmnet_vnd_private_s {
 
 	rwlock_t flow_map_lock;
 	struct list_head flow_head;
-	struct rmnet_map_flow_mapping_s root_flow;
 };
 
 #define RMNET_VND_FC_QUEUED      0
@@ -305,7 +304,8 @@ static int _rmnet_vnd_do_flow_control(struct net_device *dev,
 {
 	struct rmnet_vnd_fc_work *fcwork;
 
-	fcwork = kmalloc(sizeof(*fcwork), GFP_ATOMIC);
+	fcwork = (struct rmnet_vnd_fc_work *)
+			kmalloc(sizeof(struct rmnet_vnd_fc_work), GFP_ATOMIC);
 	if (!fcwork)
 		return RMNET_VND_FC_KMALLOC_ERR;
 	memset(fcwork, 0, sizeof(struct rmnet_vnd_fc_work));
@@ -454,7 +454,7 @@ static int rmnet_vnd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		break;
 
 	default:
-		LOGM("Unknown IOCTL 0x%08X", cmd);
+		LOGH("Unkown IOCTL 0x%08X", cmd);
 		rc = -EINVAL;
 	}
 
@@ -476,6 +476,8 @@ static const struct net_device_ops rmnet_data_vnd_ops = {
  *
  * Called by kernel whenever a new rmnet_data<n> device is created. Sets MTU,
  * flags, ARP type, needed headroom, etc...
+ *
+ * todo: What is watchdog_timeo? Do we need to explicitly set it?
  */
 static void rmnet_vnd_setup(struct net_device *dev)
 {
@@ -490,6 +492,7 @@ static void rmnet_vnd_setup(struct net_device *dev)
 	dev->mtu = RMNET_DATA_DFLT_PACKET_SIZE;
 	dev->needed_headroom = RMNET_DATA_NEEDED_HEADROOM;
 	random_ether_addr(dev->dev_addr);
+	dev->watchdog_timeo = 1000;
 	dev->tx_queue_len = RMNET_DATA_TX_QUEUE_LEN;
 
 	/* Raw IP mode */
@@ -501,18 +504,6 @@ static void rmnet_vnd_setup(struct net_device *dev)
 	/* Flow control */
 	rwlock_init(&dev_conf->flow_map_lock);
 	INIT_LIST_HEAD(&dev_conf->flow_head);
-}
-
-/**
- * rmnet_vnd_setup() - net_device initialization helper function
- * @dev:      Virtual network device
- *
- * Called during device initialization. Disables GRO.
- */
-static void rmnet_vnd_disable_offload(struct net_device *dev)
-{
-	dev->wanted_features &= ~NETIF_F_GRO;
-	__netdev_update_features(dev);
 }
 
 /* ***************** Exposed API ******************************************** */
@@ -564,7 +555,7 @@ int rmnet_vnd_init(void)
  *      - RMNET_CONFIG_UNKNOWN_ERROR if register_netdevice() fails
  */
 int rmnet_vnd_create_dev(int id, struct net_device **new_device,
-			 const char *prefix, int use_name)
+			 const char *prefix)
 {
 	struct net_device *dev;
 	char dev_prefix[IFNAMSIZ];
@@ -580,12 +571,10 @@ int rmnet_vnd_create_dev(int id, struct net_device **new_device,
 		return RMNET_CONFIG_DEVICE_IN_USE;
 	}
 
-	if (!prefix && !use_name)
+	if (!prefix)
 		p = scnprintf(dev_prefix, IFNAMSIZ, "%s%%d",
 			  RMNET_DATA_DEV_NAME_STR);
-	else if (prefix && use_name)
-		p = scnprintf(dev_prefix, IFNAMSIZ, "%s", prefix);
-	else if (prefix && !use_name)
+	else
 		p = scnprintf(dev_prefix, IFNAMSIZ, "%s%%d",
 			  prefix);
 	if (p >= (IFNAMSIZ-1)) {
@@ -595,7 +584,6 @@ int rmnet_vnd_create_dev(int id, struct net_device **new_device,
 
 	dev = alloc_netdev(sizeof(struct rmnet_vnd_private_s),
 			   dev_prefix,
-			   use_name ? NET_NAME_UNKNOWN : NET_NAME_ENUM,
 			   rmnet_vnd_setup);
 	if (!dev) {
 		LOGE("Failed to to allocate netdev for id %d", id);
@@ -604,19 +592,8 @@ int rmnet_vnd_create_dev(int id, struct net_device **new_device,
 	}
 
 	if (!prefix) {
-		/* Configuring DL checksum offload on rmnet_data interfaces */
-		dev->hw_features = NETIF_F_RXCSUM;
 		/* Configuring UL checksum offload on rmnet_data interfaces */
-		dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
-			NETIF_F_IPV6_UDP_CSUM;
-		/* Configuring GRO on rmnet_data interfaces */
-		dev->hw_features |= NETIF_F_GRO;
-		/* Configuring Scatter-Gather on rmnet_data interfaces */
-		dev->hw_features |= NETIF_F_SG;
-		/* Configuring GSO on rmnet_data interfaces */
-		dev->hw_features |= NETIF_F_GSO;
-		dev->hw_features |= NETIF_F_GSO_UDP_TUNNEL;
-		dev->hw_features |= NETIF_F_GSO_UDP_TUNNEL_CSUM;
+		dev->hw_features = NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 	}
 
 	rc = register_netdevice(dev);
@@ -629,8 +606,6 @@ int rmnet_vnd_create_dev(int id, struct net_device **new_device,
 		rmnet_devices[id] = dev;
 		*new_device = dev;
 	}
-
-	rmnet_vnd_disable_offload(dev);
 
 	LOGM("Registered device %s", dev->name);
 	return rc;
@@ -923,7 +898,8 @@ int rmnet_vnd_add_tc_flow(uint32_t id, uint32_t map_flow, uint32_t tc_flow)
 	}
 	write_unlock_irqrestore(&dev_conf->flow_map_lock, flags);
 
-	itm = kmalloc(sizeof(*itm), GFP_KERNEL);
+	itm = (struct rmnet_map_flow_mapping_s *)
+		kmalloc(sizeof(struct rmnet_map_flow_mapping_s), GFP_KERNEL);
 
 	if (!itm) {
 		LOGM("%s", "Failure allocating flow mapping");
@@ -1047,11 +1023,6 @@ int rmnet_vnd_do_flow_control(struct net_device *dev,
 		BUG();
 
 	read_lock(&dev_conf->flow_map_lock);
-	if (map_flow_id == 0xFFFFFFFF) {
-		itm = &(dev_conf->root_flow);
-		goto nolookup;
-	}
-
 	itm = _rmnet_vnd_get_flow_map(dev_conf, map_flow_id);
 
 	if (!itm) {
@@ -1059,23 +1030,8 @@ int rmnet_vnd_do_flow_control(struct net_device *dev,
 		     map_flow_id);
 		goto fcdone;
 	}
-
-nolookup:
 	if (v4_seq == 0 || v4_seq >= atomic_read(&(itm->v4_seq))) {
 		atomic_set(&(itm->v4_seq), v4_seq);
-		if (map_flow_id == 0xFFFFFFFF) {
-			LOGD("Setting VND TX queue state to %d", enable);
-			/* Although we expect similar number of enable/disable
-			 * commands, optimize for the disable. That is more
-			 * latency sensitive than enable
-			 */
-			if (unlikely(enable))
-				netif_wake_queue(dev);
-			else
-				netif_stop_queue(dev);
-			trace_rmnet_fc_map(0xFFFFFFFF, 0, enable);
-			goto fcdone;
-		}
 		for (i = 0; i < RMNET_MAP_FLOW_NUM_TC_HANDLE; i++) {
 			if (itm->tc_flow_valid[i] == 1) {
 				LOGD("Found [%s][0x%08X][%d:0x%08X]",

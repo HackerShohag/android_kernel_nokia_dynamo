@@ -59,15 +59,15 @@ config EARLY_PRINTK_DBGP
 	  with klogd/syslogd or the X server. You should normally N here,
 	  unless you want to debug such a crash. You need usb debug device.
 
-config EARLY_PRINTK_EFI
-	bool "Early printk via the EFI framebuffer"
-	depends on EFI && EARLY_PRINTK
-	select FONT_SUPPORT
+config DEBUG_STACKOVERFLOW
+	bool "Check for stack overflows"
+	depends on DEBUG_KERNEL
 	---help---
-	  Write kernel log output directly into the EFI framebuffer.
-
-	  This is useful for kernel debugging when your machine crashes very
-	  early before the console code is initialized.
+	  Say Y here if you want to check the overflows of kernel, IRQ
+	  and exception stacks. This option will cause messages of the
+	  stacks in detail when free stack space drops below a certain
+	  limit.
+	  If in doubt, say "N".
 
 config X86_PTDUMP
 	bool "Export kernel pagetable layout to userspace via debugfs"
@@ -81,21 +81,23 @@ config X86_PTDUMP
 	  kernel.
 	  If in doubt, say "N"
 
-config EFI_PGT_DUMP
-	bool "Dump the EFI pagetable"
-	depends on EFI && X86_PTDUMP
+config DEBUG_RODATA
+	bool "Write protect kernel read-only data structures"
+	default y
+	depends on DEBUG_KERNEL
 	---help---
-	  Enable this if you want to dump the EFI page table before
-	  enabling virtual mode. This can be used to debug miscellaneous
-	  issues with the mapping of the EFI runtime regions into that
-	  table.
+	  Mark the kernel read-only data as write-protected in the pagetables,
+	  in order to catch accidental (and incorrect) writes to such const
+	  data. This is recommended so that we can catch kernel bugs sooner.
+	  If in doubt, say "Y".
 
 config DEBUG_RODATA_TEST
-	bool "Testcase for the marking rodata read-only"
+	bool "Testcase for the DEBUG_RODATA feature"
+	depends on DEBUG_RODATA
 	default y
 	---help---
-	  This option enables a testcase for the setting rodata read-only
-	  as well as for the change_page_attr() infrastructure.
+	  This option enables a testcase for the DEBUG_RODATA
+	  feature as well as for the change_page_attr() infrastructure.
 	  If in doubt, say "N"
 
 config DEBUG_SET_MODULE_RONX
@@ -120,6 +122,7 @@ config DEBUG_NX_TEST
 config DOUBLEFAULT
 	default y
 	bool "Enable doublefault exception handler" if EXPERT
+	depends on X86_32
 	---help---
 	  This option allows trapping of rare doublefault exceptions that
 	  would otherwise cause a system to silently reboot. Disabling this
@@ -182,7 +185,6 @@ config HAVE_MMIOTRACE_SUPPORT
 config X86_DECODER_SELFTEST
 	bool "x86 instruction decoder selftest"
 	depends on DEBUG_KERNEL && KPROBES
-	depends on !COMPILE_TEST
 	---help---
 	 Perform x86 instruction decoder selftests at build time.
 	 This option is useful for checking the sanity of x86 instruction
@@ -299,16 +301,6 @@ config DEBUG_NMI_SELFTEST
 
 	  This might help diagnose strange hangs that rely on NMI to
 	  function properly.
-
-	  If unsure, say N.
-
-config X86_DEBUG_STATIC_CPU_HAS
-	bool "Debug alternatives"
-	depends on DEBUG_KERNEL
-	---help---
-	  This option causes additional code to be generated which
-	  fails if static_cpu_has() is used before alternatives have
-	  run.
 
 	  If unsure, say N.
 

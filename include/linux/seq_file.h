@@ -158,23 +158,6 @@ static inline struct user_namespace *seq_user_ns(struct seq_file *seq)
 #endif
 }
 
-/**
- * seq_show_options - display mount options with appropriate escapes.
- * @m: the seq_file handle
- * @name: the mount option name
- * @value: the mount option name's value, can be NULL
- */
-static inline void seq_show_option(struct seq_file *m, const char *name,
-				   const char *value)
-{
-	seq_putc(m, ',');
-	seq_escape(m, name, ",= \t\n\\");
-	if (value) {
-		seq_putc(m, '=');
-		seq_escape(m, value, ", \t\n\\");
-	}
-}
-
 #define SEQ_START_TOKEN ((void *)1)
 /*
  * Helpers for iteration over list_head-s in seq_files
@@ -205,10 +188,4 @@ extern struct hlist_node *seq_hlist_start_head_rcu(struct hlist_head *head,
 extern struct hlist_node *seq_hlist_next_rcu(void *v,
 						   struct hlist_head *head,
 						   loff_t *ppos);
-
-/* Helpers for iterating over per-cpu hlist_head-s in seq_files */
-extern struct hlist_node *seq_hlist_start_percpu(struct hlist_head __percpu *head, int *cpu, loff_t pos);
-
-extern struct hlist_node *seq_hlist_next_percpu(void *v, struct hlist_head __percpu *head, int *cpu, loff_t *pos);
-
 #endif

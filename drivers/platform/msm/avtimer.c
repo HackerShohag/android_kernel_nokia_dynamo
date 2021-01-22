@@ -73,12 +73,13 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 {
 	uint32_t *payload1;
 
+	pr_debug("%s: core msg: payload len = %u, apr resp opcode = 0x%X\n",
+		__func__, data->payload_size, data->opcode);
+
 	if (!data) {
 		pr_err("%s: Invalid params\n", __func__);
 		return -EINVAL;
 	}
-	pr_debug("%s: core msg: payload len = %u, apr resp opcode = 0x%X\n",
-		__func__, data->payload_size, data->opcode);
 
 	switch (data->opcode) {
 
@@ -456,7 +457,7 @@ static int dev_avtimer_probe(struct platform_device *pdev)
 			__func__, major);
 
 	if (of_property_read_u32(pdev->dev.of_node,
-			"qcom,clk-div", &clk_div_val))
+			"qcom,clk_div", &clk_div_val))
 		avtimer.clk_div = 1;
 	else
 		avtimer.clk_div = clk_div_val;

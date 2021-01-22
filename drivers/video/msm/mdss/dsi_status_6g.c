@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,35 +14,66 @@
 #include <linux/delay.h>
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
-#include <linux/interrupt.h>
 
 #include "mdss_dsi.h"
 #include "mdss_mdp.h"
 
 /*
+ * mdss_report_panel_dead() - Sends the PANEL_ALIVE=0 status to HAL layer.
+ * @pstatus_data   : dsi status data
+ *
+ * This function is called if the panel fails to respond as expected to
+ * the register read/BTA or if the TE signal is not coming as expected
+ * from the panel. The function sends the PANEL_ALIVE=0 status to HAL
+ * layer.
+ */
+static void mdss_report_panel_dead(struct dsi_status_data *pstatus_data)
+{
+	char *envp[2] = {"PANEL_ALIVE=0", NULL};
+	struct mdss_panel_data *pdata =
+		dev_get_platdata(&pstatus_data->mfd->pdev->dev);
+	if (!pdata) {
+		pr_err("%s: Panel data not available\n", __func__);
+		return;
+	}
+
+	pdata->panel_info.panel_dead = true;
+	kobject_uevent_env(&pstatus_data->mfd->fbi->dev->kobj,
+		KOBJ_CHANGE, envp);
+	pr_err("%s: Panel has gone bad, sending uevent - %s\n",
+		__func__, envp[0]);
+	return;
+}
+
+/*
  * mdss_check_te_status() - Check the status of panel for TE based ESD.
  * @ctrl_pdata   : dsi controller data
  * @pstatus_data : dsi status data
- * @interval     : duration in milliseconds for panel TE wait
+ * @interval     : duration in milliseconds to schedule work queue
  *
  * This function is called when the TE signal from the panel doesn't arrive
  * after 'interval' milliseconds. If the TE IRQ is not ready, the workqueue
  * gets re-scheduled. Otherwise, report the panel to be dead due to ESD attack.
  */
-static bool mdss_check_te_status(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
+static void mdss_check_te_status(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 		struct dsi_status_data *pstatus_data, uint32_t interval)
 {
-	bool ret;
-
-	atomic_set(&ctrl_pdata->te_irq_ready, 0);
-	reinit_completion(&ctrl_pdata->te_irq_comp);
-	enable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
-	/* Define TE interrupt timeout value as 3x(1/fps) */
-	ret = wait_for_completion_timeout(&ctrl_pdata->te_irq_comp,
+	/*
+	 * During resume, the panel status will be ON but due to race condition
+	 * between ESD thread and display UNBLANK (or rather can be put as
+	 * asynchronuous nature between these two threads), the ESD thread might
+	 * reach this point before the TE IRQ line is enabled or before the
+	 * first TE interrupt arrives after the TE IRQ line is enabled. For such
+	 * cases, re-schedule the ESD thread.
+	 */
+	if (!atomic_read(&ctrl_pdata->te_irq_ready)) {
+		schedule_delayed_work(&pstatus_data->check_status,
 			msecs_to_jiffies(interval));
-	disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
-	pr_debug("%s: Panel TE check done with ret = %d\n", __func__, ret);
-	return ret;
+		pr_debug("%s: TE IRQ line not enabled yet\n", __func__);
+		return;
+	}
+
+	mdss_report_panel_dead(pstatus_data);
 }
 
 /*
@@ -88,7 +119,7 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	}
 
 	if (!pdata->panel_info.esd_rdy) {
-		pr_debug("%s: unblank not complete, reschedule check status\n",
+		pr_warn("%s: unblank not complete, reschedule check status\n",
 			__func__);
 		schedule_delayed_work(&pstatus_data->check_status,
 				msecs_to_jiffies(interval));
@@ -104,16 +135,10 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	}
 
 	if (ctrl_pdata->status_mode == ESD_TE) {
-		uint32_t fps = mdss_panel_get_framerate(&pdata->panel_info,
-							FPS_RESOLUTION_HZ);
-		uint32_t timeout = ((1000 / fps) + 1) *
-					MDSS_STATUS_TE_WAIT_MAX;
-
-		if (mdss_check_te_status(ctrl_pdata, pstatus_data, timeout))
-			goto sim;
-		else
-			goto status_dead;
+		mdss_check_te_status(ctrl_pdata, pstatus_data, interval);
+		return;
 	}
+
 
 	/*
 	 * TODO: Because mdss_dsi_cmd_mdp_busy has made sure DMA to
@@ -121,21 +146,17 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	 * to acquire ov_lock in case of video mode. Removing this
 	 * lock to fix issues so that ESD thread would not block other
 	 * overlay operations. Need refine this lock for command mode
-	 *
-	 * If Burst mode is enabled then we dont have to acquire ov_lock as
-	 * command and data arbitration is possible in h/w
 	 */
 
-	if ((mipi->mode == DSI_CMD_MODE) && !ctrl_pdata->burst_mode_enabled)
-		mutex_lock(&mdp5_data->ov_lock);
 	mutex_lock(&ctl->offlock);
+	if (mipi->mode == DSI_CMD_MODE)
+		mutex_lock(&mdp5_data->ov_lock);
 
 	if (mdss_panel_is_power_off(pstatus_data->mfd->panel_power_state) ||
 			pstatus_data->mfd->shutdown_pending) {
-		mutex_unlock(&ctl->offlock);
-		if ((mipi->mode == DSI_CMD_MODE) &&
-		    !ctrl_pdata->burst_mode_enabled)
+		if (mipi->mode == DSI_CMD_MODE)
 			mutex_unlock(&mdp5_data->ov_lock);
+		mutex_unlock(&ctl->offlock);
 		pr_err("%s: DSI turning off, avoiding panel status check\n",
 							__func__);
 		return;
@@ -151,8 +172,8 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	 * display reset not to be proper. Hence, wait for DMA_P done
 	 * for command mode panels before triggering BTA.
 	 */
-	if (ctl->ops.wait_pingpong && !ctrl_pdata->burst_mode_enabled)
-		ctl->ops.wait_pingpong(ctl, NULL);
+	if (ctl->wait_pingpong)
+		ctl->wait_pingpong(ctl, NULL);
 
 	pr_debug("%s: DSI ctrl wait for ping pong done\n", __func__);
 
@@ -160,27 +181,15 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	ret = ctrl_pdata->check_status(ctrl_pdata);
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 
-	mutex_unlock(&ctl->offlock);
-	if ((mipi->mode == DSI_CMD_MODE) && !ctrl_pdata->burst_mode_enabled)
+	if (mipi->mode == DSI_CMD_MODE)
 		mutex_unlock(&mdp5_data->ov_lock);
+	mutex_unlock(&ctl->offlock);
 
 	if ((pstatus_data->mfd->panel_power_state == MDSS_PANEL_POWER_ON)) {
 		if (ret > 0)
 			schedule_delayed_work(&pstatus_data->check_status,
 				msecs_to_jiffies(interval));
 		else
-			goto status_dead;
+			mdss_report_panel_dead(pstatus_data);
 	}
-sim:
-	if (pdata->panel_info.panel_force_dead) {
-		pr_debug("force_dead=%d\n", pdata->panel_info.panel_force_dead);
-		pdata->panel_info.panel_force_dead--;
-		if (!pdata->panel_info.panel_force_dead)
-			goto status_dead;
-	}
-
-	return;
-
-status_dead:
-	mdss_fb_report_panel_dead(pstatus_data->mfd);
 }

@@ -152,7 +152,10 @@ static int sm_disk_dec_block(struct dm_space_map *sm, dm_block_t b)
 		 * transaction.
 		 */
 		r = sm_ll_lookup(&smd->old_ll, b, &old_count);
-		if (!r && !old_count)
+		if (r)
+			return r;
+
+		if (!old_count)
 			smd->nr_allocated_this_transaction--;
 	}
 

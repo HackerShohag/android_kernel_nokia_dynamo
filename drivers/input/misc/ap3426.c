@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015,2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -953,6 +953,7 @@ static void ap3426_report_work(struct work_struct *work)
 	if (rc) {
 		dev_err(&di->i2c->dev, "read %d failed.(%d)\n",
 				AP3426_REG_INT_FLAG, rc);
+		status |= AP3426_PS_INT_MASK;
 		goto exit;
 	}
 
@@ -1805,7 +1806,7 @@ static int ap3426_probe(struct i2c_client *client,
 		device_init_wakeup(&client->dev, 1);
 
 		di->workqueue = alloc_workqueue("ap3426_workqueue",
-				WQ_FREEZABLE, 0);
+				WQ_NON_REENTRANT | WQ_FREEZABLE, 0);
 		INIT_WORK(&di->report_work, ap3426_report_work);
 		INIT_WORK(&di->als_enable_work, ap3426_als_enable_work);
 		INIT_WORK(&di->als_disable_work, ap3426_als_disable_work);

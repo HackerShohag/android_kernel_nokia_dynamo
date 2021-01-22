@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,14 +24,13 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/percpu.h>
-#include <linux/msm_rtb.h>
+#include <soc/qcom/cti-pmu-irq.h>
 
 #include <asm/cputype.h>
-#include <asm/esr.h>
 
 #include "edac_core.h"
 
-#define A53_CPUMERRSR_FATAL(a)	((a) & (1LL << 63))
+#define A53_CPMUERRSR_FATAL(a)	((a) & (1 << 63))
 #define A53_CPUMERRSR_OTHER(a)	(((a) >> 40) & 0xff)
 #define A53_CPUMERRSR_REPT(a)	(((a) >> 32) & 0xff)
 #define A53_CPUMERRSR_VALID(a)	((a) & (1 << 31))
@@ -39,7 +38,7 @@
 #define A53_CPUMERRSR_CPUID(a)	(((a) >> 18) & 0x07)
 #define A53_CPUMERRSR_ADDR(a)	((a) & 0xfff)
 
-#define A53_L2MERRSR_FATAL(a)	((a) & (1LL << 63))
+#define A53_L2MERRSR_FATAL(a)	((a) & (1 << 63))
 #define A53_L2MERRSR_OTHER(a)	(((a) >> 40) & 0xff)
 #define A53_L2MERRSR_REPT(a)	(((a) >> 32) & 0xff)
 #define A53_L2MERRSR_VALID(a)	((a) & (1 << 31))
@@ -47,7 +46,7 @@
 #define A53_L2MERRSR_CPUID(a)	(((a) >> 18) & 0x0f)
 #define A53_L2MERRSR_INDEX(a)	(((a) >> 3) & 0x3fff)
 
-#define A57_CPUMERRSR_FATAL(a)	((a) & (1LL << 63))
+#define A57_CPMUERRSR_FATAL(a)	((a) & (1 << 63))
 #define A57_CPUMERRSR_OTHER(a)	(((a) >> 40) & 0xff)
 #define A57_CPUMERRSR_REPT(a)	(((a) >> 32) & 0xff)
 #define A57_CPUMERRSR_VALID(a)	((a) & (1 << 31))
@@ -55,7 +54,7 @@
 #define A57_CPUMERRSR_BANK(a)	(((a) >> 18) & 0x1f)
 #define A57_CPUMERRSR_INDEX(a)	((a) & 0x1ffff)
 
-#define A57_L2MERRSR_FATAL(a)	((a) & (1LL << 63))
+#define A57_L2MERRSR_FATAL(a)	((a) & (1 << 63))
 #define A57_L2MERRSR_OTHER(a)	(((a) >> 40) & 0xff)
 #define A57_L2MERRSR_REPT(a)	(((a) >> 32) & 0xff)
 #define A57_L2MERRSR_VALID(a)	((a) & (1 << 31))
@@ -63,21 +62,8 @@
 #define A57_L2MERRSR_CPUID(a)	(((a) >> 18) & 0x0f)
 #define A57_L2MERRSR_INDEX(a)	((a) & 0x1ffff)
 
-#define KRYO2XX_GOLD_L2MERRSR_FATAL(a)	((a) & (1LL << 63))
-#define KRYO2XX_GOLD_L2MERRSR_OTHER(a)	(((a) >> 40) & 0x3f)
-#define KRYO2XX_GOLD_L2MERRSR_REPT(a)	(((a) >> 32) & 0x3f)
-#define KRYO2XX_GOLD_L2MERRSR_VALID(a)	((a) & (1 << 31))
-#define KRYO2XX_GOLD_L2MERRSR_RAMID(a)	((a) & (1 << 24))
-#define KRYO2XX_GOLD_L2MERRSR_WAY(a)	(((a) >> 18) & 0x0f)
-#define KRYO2XX_GOLD_L2MERRSR_INDEX(a)	(((a) >> 3) & 0x3fff)
-
 #define L2ECTLR_INT_ERR		(1 << 30)
 #define L2ECTLR_EXT_ERR		(1 << 29)
-
-#define ESR_SERROR(a)	((a) >> ESR_EL1_EC_SHIFT == ESR_EL1_EC_SERROR)
-#define ESR_VALID(a)	((a) & BIT(24))
-#define ESR_L2_DBE(a) (ESR_SERROR(a) && ESR_VALID(a) && \
-			(((a) & 0x00C00003) == 0x1))
 
 #define CCI_IMPRECISEERROR_REG	0x10
 
@@ -124,21 +110,30 @@ const char *err_name[] = {
 struct erp_drvdata {
 	struct edac_device_ctl_info *edev_ctl;
 	void __iomem *cci_base;
+	u32 mem_perf_counter;
 	struct notifier_block nb_pm;
 	struct notifier_block nb_cpu;
 	struct notifier_block nb_panic;
 	struct work_struct work;
-	struct perf_event *memerr_counters[NR_CPUS];
+	int apply_cti_pmu_wa;
 };
 
-static struct erp_drvdata *panic_handler_drvdata;
+static struct erp_drvdata *abort_handler_drvdata, *panic_handler_drvdata;
 
 struct erp_local_data {
 	struct erp_drvdata *drv;
 	enum error_type err;
 };
 
+/* Reserving the last PMU counter for Memory Event for EDAC */
+#define	ARMV8_PMCR_N_SHIFT	11	 /* Number of counters supported */
+#define	ARMV8_PMCR_N_MASK	0x1f
+#define ARMV8PMU_EVTYPE_NSH	BIT(27)
+#define ARMV8_PMCR_E		(1 << 0) /* Enable all counters */
 #define MEM_ERROR_EVENT		0x1A
+#define MAX_COUNTER_VALUE	0xFFFFFFFF
+
+static inline void sbe_enable_event(void *info);
 
 struct errors_edac {
 	const char * const msg;
@@ -177,12 +172,6 @@ static const struct errors_edac errors[] = {
 	__val;								\
 })
 
-#define read_esr_el1 ({							\
-	u64 __val;							\
-	asm("mrs %0, esr_el1" : "=r" (__val));				\
-	__val;								\
-})
-
 #define write_l2merrsr_el1(val) ({					\
 	asm("msr s3_1_c15_c2_3, %0" : : "r" (val));			\
 })
@@ -195,65 +184,6 @@ static const struct errors_edac errors[] = {
 	asm("msr s3_1_c15_c2_2, %0" : : "r" (val));			\
 })
 
-static void ca53_ca57_print_error_state_regs(void)
-{
-	u64 l2merrsr;
-	u64 cpumerrsr;
-	u32 esr_el1;
-	u32 l2ectlr;
-
-	cpumerrsr = read_cpumerrsr_el1;
-	l2merrsr = read_l2merrsr_el1;
-	esr_el1 = read_esr_el1;
-	l2ectlr = read_l2ectlr_el1;
-
-	/* store data in uncached rtb logs */
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)cpumerrsr);
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)l2merrsr);
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)((u64)esr_el1));
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)((u64)l2ectlr));
-
-	edac_printk(KERN_CRIT, EDAC_CPU, "CPUMERRSR value = %#llx\n",
-								cpumerrsr);
-	edac_printk(KERN_CRIT, EDAC_CPU, "L2MERRSR value = %#llx\n", l2merrsr);
-
-	edac_printk(KERN_CRIT, EDAC_CPU, "ESR value = %#x\n", esr_el1);
-	edac_printk(KERN_CRIT, EDAC_CPU, "L2ECTLR value = %#x\n", l2ectlr);
-	if (ESR_L2_DBE(esr_el1))
-		edac_printk(KERN_CRIT, EDAC_CPU,
-			"Double bit error on dirty L2 cacheline\n");
-}
-
-static void kryo2xx_gold_print_error_state_regs(void)
-{
-	u64 l2merrsr;
-	u32 esr_el1;
-	u32 l2ectlr;
-
-	l2merrsr = read_l2merrsr_el1;
-	esr_el1 = read_esr_el1;
-	l2ectlr = read_l2ectlr_el1;
-
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)l2merrsr);
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)((u64)esr_el1));
-	uncached_logk_pc(LOGK_READL, __builtin_return_address(0),
-				(void *)((u64)l2ectlr));
-
-	edac_printk(KERN_CRIT, EDAC_CPU, "L2MERRSR value = %#llx\n", l2merrsr);
-
-	edac_printk(KERN_CRIT, EDAC_CPU, "ESR value = %#x\n", esr_el1);
-	edac_printk(KERN_CRIT, EDAC_CPU, "L2ECTLR value = %#x\n", l2ectlr);
-	if (ESR_L2_DBE(esr_el1))
-		edac_printk(KERN_CRIT, EDAC_CPU,
-			"Double bit error on dirty L2 cacheline\n");
-}
-
 static void ca53_parse_cpumerrsr(struct erp_local_data *ed)
 {
 	u64 cpumerrsr;
@@ -264,14 +194,10 @@ static void ca53_parse_cpumerrsr(struct erp_local_data *ed)
 	if (!A53_CPUMERRSR_VALID(cpumerrsr))
 		return;
 
-	if (A53_CPUMERRSR_FATAL(cpumerrsr))
-		ed->err = DBE;
-
 	edac_printk(KERN_CRIT, EDAC_CPU, "Cortex A53 CPU%d L1 %s Error detected\n",
 					 smp_processor_id(), err_name[ed->err]);
-	ca53_ca57_print_error_state_regs();
-	if (ed->err == DBE)
-		edac_printk(KERN_CRIT, EDAC_CPU, "Fatal error\n");
+	edac_printk(KERN_CRIT, EDAC_CPU, "CPUMERRSR value = %#llx\n",
+								cpumerrsr);
 
 	cpuid = A53_CPUMERRSR_CPUID(cpumerrsr);
 
@@ -335,14 +261,9 @@ static void ca53_parse_l2merrsr(struct erp_local_data *ed)
 	if (!A53_L2MERRSR_VALID(l2merrsr))
 		return;
 
-	if (A53_L2MERRSR_FATAL(l2merrsr))
-		ed->err = DBE;
-
 	edac_printk(KERN_CRIT, EDAC_CPU, "CortexA53 L2 %s Error detected\n",
 							err_name[ed->err]);
-	ca53_ca57_print_error_state_regs();
-	if (ed->err == DBE)
-		edac_printk(KERN_CRIT, EDAC_CPU, "Fatal error\n");
+	edac_printk(KERN_CRIT, EDAC_CPU, "L2MERRSR value = %#llx\n", l2merrsr);
 
 	cpuid = A53_L2MERRSR_CPUID(l2merrsr);
 
@@ -392,14 +313,10 @@ static void ca57_parse_cpumerrsr(struct erp_local_data *ed)
 	if (!A57_CPUMERRSR_VALID(cpumerrsr))
 		return;
 
-	if (A57_CPUMERRSR_FATAL(cpumerrsr))
-		ed->err = DBE;
-
 	edac_printk(KERN_CRIT, EDAC_CPU, "Cortex A57 CPU%d L1 %s Error detected\n",
 					 smp_processor_id(), err_name[ed->err]);
-	ca53_ca57_print_error_state_regs();
-	if (ed->err == DBE)
-		edac_printk(KERN_CRIT, EDAC_CPU, "Fatal error\n");
+	edac_printk(KERN_CRIT, EDAC_CPU, "CPUMERRSR value = %#llx\n",
+								cpumerrsr);
 
 	bank = A57_CPUMERRSR_BANK(cpumerrsr);
 
@@ -457,14 +374,9 @@ static void ca57_parse_l2merrsr(struct erp_local_data *ed)
 	if (!A57_L2MERRSR_VALID(l2merrsr))
 		return;
 
-	if (A57_L2MERRSR_FATAL(l2merrsr))
-		ed->err = DBE;
-
 	edac_printk(KERN_CRIT, EDAC_CPU, "CortexA57 L2 %s Error detected\n",
 							err_name[ed->err]);
-	ca53_ca57_print_error_state_regs();
-	if (ed->err == DBE)
-		edac_printk(KERN_CRIT, EDAC_CPU, "Fatal error\n");
+	edac_printk(KERN_CRIT, EDAC_CPU, "L2MERRSR value = %#llx\n", l2merrsr);
 
 	cpuid = A57_L2MERRSR_CPUID(l2merrsr);
 
@@ -514,50 +426,6 @@ static void ca57_parse_l2merrsr(struct erp_local_data *ed)
 	write_l2merrsr_el1(0);
 }
 
-
-static void kryo2xx_gold_parse_l2merrsr(struct erp_local_data *ed)
-{
-	u64 l2merrsr;
-	int ramid, way;
-
-	l2merrsr = read_l2merrsr_el1;
-
-	if (!KRYO2XX_GOLD_L2MERRSR_VALID(l2merrsr))
-		return;
-
-	if (KRYO2XX_GOLD_L2MERRSR_FATAL(l2merrsr))
-		ed->err = DBE;
-
-	edac_printk(KERN_CRIT, EDAC_CPU, "Gold L2 %s Error detected\n",
-							err_name[ed->err]);
-	kryo2xx_gold_print_error_state_regs();
-	if (ed->err == DBE)
-		edac_printk(KERN_CRIT, EDAC_CPU, "Fatal error\n");
-
-	way = KRYO2XX_GOLD_L2MERRSR_WAY(l2merrsr);
-	ramid = KRYO2XX_GOLD_L2MERRSR_RAMID(l2merrsr);
-
-	edac_printk(KERN_CRIT, EDAC_CPU,
-				"L2 %s RAM error in way 0x%02x, index 0x%04x\n",
-				ramid ? "data" : "tag",
-				(int) KRYO2XX_GOLD_L2MERRSR_WAY(l2merrsr),
-				(int) KRYO2XX_GOLD_L2MERRSR_INDEX(l2merrsr));
-
-	edac_printk(KERN_CRIT, EDAC_CPU, "Repeated error count: %d\n",
-					 (int) KRYO2XX_GOLD_L2MERRSR_REPT(l2merrsr));
-	edac_printk(KERN_CRIT, EDAC_CPU, "Other error count: %d\n",
-					 (int) KRYO2XX_GOLD_L2MERRSR_OTHER(l2merrsr));
-
-	if (ed->err == SBE) {
-		errors[A57_L2_CE].func(ed->drv->edev_ctl, smp_processor_id(),
-					L2_CACHE, errors[A57_L2_CE].msg);
-	} else if (ed->err == DBE) {
-		errors[A57_L2_UE].func(ed->drv->edev_ctl, smp_processor_id(),
-					L2_CACHE, errors[A57_L2_UE].msg);
-	}
-	write_l2merrsr_el1(0);
-}
-
 static DEFINE_SPINLOCK(local_handler_lock);
 static DEFINE_SPINLOCK(l2ectlr_lock);
 
@@ -575,19 +443,13 @@ static void arm64_erp_local_handler(void *info)
 
 	switch (partnum) {
 	case ARM_CPU_PART_CORTEX_A53:
-	case ARM_CPU_PART_KRYO2XX_SILVER:
 		ca53_parse_cpumerrsr(errdata);
 		ca53_parse_l2merrsr(errdata);
 	break;
 
-	case ARM_CPU_PART_CORTEX_A72:
 	case ARM_CPU_PART_CORTEX_A57:
 		ca57_parse_cpumerrsr(errdata);
 		ca57_parse_l2merrsr(errdata);
-	break;
-
-	case ARM_CPU_PART_KRYO2XX_GOLD:
-		kryo2xx_gold_parse_l2merrsr(errdata);
 	break;
 
 	default:
@@ -689,22 +551,151 @@ static irqreturn_t arm64_cci_handler(int irq, void *drvdata)
 	return IRQ_HANDLED;
 }
 
-#ifndef CONFIG_EDAC_CORTEX_ARM64_DBE_IRQ_ONLY
-static void arm64_sbe_handler(struct perf_event *event,
-			      struct perf_sample_data *data,
-			      struct pt_regs *regs)
+void arm64_erp_local_dbe_handler(void)
 {
+	if (abort_handler_drvdata) {
+		struct erp_local_data errdata;
+		errdata.err = DBE;
+		errdata.drv = abort_handler_drvdata;
+		arm64_erp_local_handler(abort_handler_drvdata);
+	}
+}
+
+static inline u32 armv8pmu_pmcr_read(void)
+{
+	u32 val;
+	asm volatile("mrs %0, pmcr_el0" : "=r" (val));
+	return val;
+}
+
+static inline u32 arm64_pmu_get_last_counter(void)
+{
+	u32 pmcr, cntr;
+
+	asm volatile("mrs %0, pmcr_el0" : "=r" (pmcr));
+	cntr = (pmcr >> ARMV8_PMCR_N_SHIFT) & ARMV8_PMCR_N_MASK;
+
+	return cntr-1;
+}
+
+static inline void arm64pmu_select_mem_counter(u32 cntr)
+{
+	asm volatile("msr pmselr_el0, %0" : : "r" (cntr));
+	isb();
+}
+
+static inline u32 arm64pmu_getreset_flags(u32 cntr)
+{
+	u32 value;
+	u32 write_val;
+
+	/* Read */
+	asm volatile("mrs %0, pmovsclr_el0" : "=r" (value));
+
+	/* Write to clear flags */
+	write_val = value & BIT(cntr);
+	asm volatile("msr pmovsclr_el0, %0" : : "r" (write_val));
+
+	return value;
+}
+
+static inline int arm64pmu_mem_counter_has_overflowed(u32 pmnc, u32 cntr)
+{
+	int ret = pmnc & BIT(cntr);
+	return ret;
+}
+
+static inline void arm64pmu_disable_mem_counter(u32 cntr)
+{
+	asm volatile("msr pmcntenclr_el0, %0" : : "r" (BIT(cntr)));
+}
+
+static inline void arm64pmu_enable_mem_counter(u32 cntr)
+{
+	asm volatile("msr pmcntenset_el0, %0" : : "r" (BIT(cntr)));
+}
+
+static inline void arm64pmu_write_mem_counter(u32 value, u32 cntr)
+{
+	arm64pmu_select_mem_counter(cntr);
+	asm volatile("msr pmxevcntr_el0, %0" : : "r" (value));
+}
+
+static inline void arm64pmu_set_mem_evtype(u32 cntr)
+{
+	u32 val = ARMV8PMU_EVTYPE_NSH | MEM_ERROR_EVENT;
+	arm64pmu_select_mem_counter(cntr);
+	asm volatile("msr pmxevtyper_el0, %0" : : "r" (val));
+}
+
+static inline void arm64pmu_enable_mem_irq(u32 cntr)
+{
+	asm volatile("msr pmintenset_el1, %0" : : "r" (BIT(cntr)));
+}
+
+static inline void arm64pmu_pmcr_enable(void)
+{
+	u32 val = armv8pmu_pmcr_read();
+	val |= ARMV8_PMCR_E;
+	asm volatile("msr pmcr_el0, %0" : : "r" (val));
+	isb();
+}
+
+/*
+ * This function follows the sequence to enable
+ * the memory event counter. Steps done here include
+ * programming the counter for memory error perf event,
+ * setting the initial counter value and enabling the interrupt
+ * associated with the counter.
+ */
+static inline void sbe_enable_event(void *info)
+{
+	struct erp_drvdata *drv = info;
+	unsigned long flags;
+	u32 cntr = drv->mem_perf_counter;
+
+	arm64_pmu_lock(NULL, &flags);
+	arm64pmu_disable_mem_counter(cntr);
+	arm64pmu_set_mem_evtype(cntr);
+	arm64pmu_enable_mem_irq(cntr);
+	arm64pmu_write_mem_counter(MAX_COUNTER_VALUE, cntr);
+	arm64pmu_enable_mem_counter(cntr);
+	arm64pmu_pmcr_enable();
+	arm64_pmu_unlock(NULL, &flags);
+}
+
+static irqreturn_t arm64_sbe_handler(int irq, void *drvdata)
+{
+	u32 pmovsr, cntr;
 	struct erp_local_data errdata;
+	unsigned long flags;
+	int overflow = 0, ret = IRQ_HANDLED;
 	int cpu = raw_smp_processor_id();
 
-	errdata.drv = event->overflow_handler_context;
-	errdata.err = SBE;
-	edac_printk(KERN_CRIT, EDAC_CPU, "ARM64 CPU ERP: Single-bit error interrupt received on CPU %d!\n",
-					cpu);
-	WARN_ON(!panic_on_ce);
-	arm64_erp_local_handler(&errdata);
+	errdata.drv = *((struct erp_drvdata **)drvdata);
+
+	if (errdata.drv->apply_cti_pmu_wa)
+		msm_cti_pmu_irq_ack(cpu);
+
+	cntr = errdata.drv->mem_perf_counter;
+	arm64_pmu_lock(NULL, &flags);
+	pmovsr = arm64pmu_getreset_flags(cntr);
+	arm64_pmu_unlock(NULL, &flags);
+	overflow = arm64pmu_mem_counter_has_overflowed(pmovsr, cntr);
+
+	if (overflow) {
+		errdata.err = SBE;
+		edac_printk(KERN_CRIT, EDAC_CPU, "ARM64 CPU ERP: Single-bit error interrupt received on CPU %d!\n",
+						cpu);
+		WARN_ON(!panic_on_ce);
+		arm64_erp_local_handler(&errdata);
+		sbe_enable_event(errdata.drv);
+	} else {
+		ret = armv8pmu_handle_irq(irq, NULL);
+	}
+
+	return ret;
 }
-#endif
 
 static int request_erp_irq(struct platform_device *pdev, const char *propname,
 			   const char *desc, irq_handler_t handler,
@@ -736,6 +727,12 @@ static int request_erp_irq(struct platform_device *pdev, const char *propname,
 	return 0;
 }
 
+static void arm64_enable_pmu_irq(void *data)
+{
+	unsigned int irq = *(unsigned int *)data;
+	enable_percpu_irq(irq, IRQ_TYPE_NONE);
+}
+
 static void check_sbe_event(struct erp_drvdata *drv)
 {
 	unsigned int partnum = read_cpuid_part_number();
@@ -748,56 +745,17 @@ static void check_sbe_event(struct erp_drvdata *drv)
 	spin_lock_irqsave(&local_handler_lock, flags);
 	switch (partnum) {
 	case ARM_CPU_PART_CORTEX_A53:
-	case ARM_CPU_PART_KRYO2XX_SILVER:
 		ca53_parse_cpumerrsr(&errdata);
 		ca53_parse_l2merrsr(&errdata);
 	break;
 
-	case ARM_CPU_PART_CORTEX_A72:
 	case ARM_CPU_PART_CORTEX_A57:
 		ca57_parse_cpumerrsr(&errdata);
 		ca57_parse_l2merrsr(&errdata);
 	break;
-
-	case ARM_CPU_PART_KRYO2XX_GOLD:
-		kryo2xx_gold_parse_l2merrsr(&errdata);
-	break;
 	};
 	spin_unlock_irqrestore(&local_handler_lock, flags);
 }
-
-#ifdef CONFIG_EDAC_CORTEX_ARM64_DBE_IRQ_ONLY
-static void create_sbe_counter(int cpu, void *info)
-{ }
-#else
-static void create_sbe_counter(int cpu, void *info)
-{
-	struct erp_drvdata *drv = info;
-	struct perf_event *event = drv->memerr_counters[cpu];
-	struct perf_event_attr attr = {
-		.pinned = 1,
-		.disabled = 0, /* 0 will enable the counter upon creation */
-		.sample_period = 1, /* 1 will set the counter to max int */
-		.type = PERF_TYPE_RAW,
-		.config = MEM_ERROR_EVENT,
-		.size = sizeof(struct perf_event_attr),
-	};
-
-	if (event)
-		return;
-
-	/* Fails if cpu is not online */
-	event = perf_event_create_kernel_counter(&attr, cpu, NULL,
-							arm64_sbe_handler,
-							drv);
-	if (IS_ERR(event)) {
-		pr_err("PERF Event creation failed on cpu %d ptr_err %ld\n",
-							cpu, PTR_ERR(event));
-		return;
-	}
-	drv->memerr_counters[cpu] = event;
-}
-#endif
 
 static int arm64_pmu_cpu_pm_notify(struct notifier_block *self,
 					   unsigned long action, void *v)
@@ -807,37 +765,32 @@ static int arm64_pmu_cpu_pm_notify(struct notifier_block *self,
 	switch (action) {
 	case CPU_PM_EXIT:
 		check_sbe_event(drv);
+		sbe_enable_event(drv);
 		break;
 	}
 
 	return NOTIFY_OK;
 }
 
-static int arm64_edac_pmu_cpu_notify(struct notifier_block *self,
+static int msm_cti_pmu_wa_cpu_notify(struct notifier_block *self,
 					unsigned long action, void *hcpu)
 {
 	struct erp_drvdata *drv = container_of(self, struct erp_drvdata,
 								nb_cpu);
-	unsigned long cpu = (unsigned long)hcpu;
-
-	switch (action & ~CPU_TASKS_FROZEN) {
+	switch (action) {
 	case CPU_ONLINE:
-		create_sbe_counter(cpu, drv);
+		schedule_work_on((unsigned long)hcpu, &drv->work);
 		break;
 	};
 
 	return NOTIFY_OK;
 }
 
-#ifndef CONFIG_EDAC_CORTEX_ARM64_DBE_IRQ_ONLY
 void arm64_check_cache_ecc(void *info)
 {
 	if (panic_handler_drvdata)
 		check_sbe_event(panic_handler_drvdata);
 }
-#else
-static inline void arm64_check_cache_ecc(void *info) {}
-#endif
 
 static int arm64_erp_panic_notify(struct notifier_block *this,
 			      unsigned long event, void *ptr)
@@ -872,8 +825,10 @@ static int arm64_cpu_erp_probe(struct platform_device *pdev)
 	struct resource *r;
 	int cpu;
 	u32 poll_msec;
+	struct erp_drvdata * __percpu *drv_cpu =
+					alloc_percpu(struct erp_drvdata *);
 
-	int rc, fail = 0;
+	int rc, sbe_irq, fail = 0;
 
 	drv = devm_kzalloc(dev, sizeof(*drv), GFP_KERNEL);
 
@@ -889,7 +844,7 @@ static int arm64_cpu_erp_probe(struct platform_device *pdev)
 
 	rc = of_property_read_u32(pdev->dev.of_node, "poll-delay-ms",
 							&poll_msec);
-	if (!rc && !IS_ENABLED(CONFIG_EDAC_CORTEX_ARM64_DBE_IRQ_ONLY)) {
+	if (!rc) {
 		drv->edev_ctl->edac_check = arm64_monitor_cache_errors;
 		drv->edev_ctl->poll_msec = poll_msec;
 		drv->edev_ctl->defer_work = 1;
@@ -934,22 +889,46 @@ static int arm64_cpu_erp_probe(struct platform_device *pdev)
 			    arm64_cci_handler, drv))
 		fail++;
 
-	if (IS_ENABLED(CONFIG_EDAC_CORTEX_ARM64_DBE_IRQ_ONLY)) {
-		pr_err("ARM64 CPU ERP: SBE detection is disabled.\n");
+	if (!drv_cpu)
+		goto out_irq;
+
+	sbe_irq = platform_get_irq_byname(pdev, "sbe-irq");
+	if (sbe_irq < 0) {
+		pr_err("ARM64 CPU ERP: Could not find sbe-irq IRQ property. Proceeding anyway.\n");
+		fail++;
 		goto out_irq;
 	}
 
+	for_each_possible_cpu(cpu)
+		*per_cpu_ptr(drv_cpu, cpu) = drv;
+
+	rc = request_percpu_irq(sbe_irq, arm64_sbe_handler,
+			"ARM64 Single-Bit Error PMU IRQ",
+			drv_cpu);
+	if (rc) {
+		pr_err("ARM64 CPU ERP: Failed to request IRQ %d: %d. Proceeding anyway.\n",
+								sbe_irq, rc);
+		goto out_irq;
+	}
+
+	drv->apply_cti_pmu_wa = of_property_read_bool(pdev->dev.of_node,
+						"qcom,apply-cti-pmu-wa");
+
 	drv->nb_pm.notifier_call = arm64_pmu_cpu_pm_notify;
+	drv->mem_perf_counter = arm64_pmu_get_last_counter();
 	cpu_pm_register_notifier(&(drv->nb_pm));
 	drv->nb_panic.notifier_call = arm64_erp_panic_notify;
 	atomic_notifier_chain_register(&panic_notifier_list,
 				       &drv->nb_panic);
-	drv->nb_cpu.notifier_call = arm64_edac_pmu_cpu_notify;
-	register_cpu_notifier(&drv->nb_cpu);
-	get_online_cpus();
-	for_each_online_cpu(cpu)
-		create_sbe_counter(cpu, drv);
-	put_online_cpus();
+	arm64_pmu_irq_handled_externally();
+	if (drv->apply_cti_pmu_wa) {
+		drv->nb_cpu.notifier_call = msm_cti_pmu_wa_cpu_notify;
+		register_cpu_notifier(&drv->nb_cpu);
+		schedule_on_each_cpu(msm_enable_cti_pmu_workaround);
+		INIT_WORK(&drv->work, msm_enable_cti_pmu_workaround);
+	}
+	on_each_cpu(sbe_enable_event, drv, 1);
+	on_each_cpu(arm64_enable_pmu_irq, &sbe_irq, 1);
 
 out_irq:
 	if (fail == of_irq_count(dev->of_node)) {
@@ -958,6 +937,14 @@ out_irq:
 		goto out_dev;
 	}
 
+	/*
+	 * abort_handler_drvdata points to erp_drvdata structure used for
+	 * reporting information on double-bit errors. There should only ever
+	 * be one.
+	 * */
+	WARN_ON(abort_handler_drvdata);
+
+	abort_handler_drvdata = drv;
 	panic_handler_drvdata = drv;
 
 	return 0;

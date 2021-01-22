@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015,2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -302,7 +302,6 @@ static void aw2013_set_brightness(struct led_classdev *cdev,
 			     enum led_brightness brightness)
 {
 	struct aw2013_led *led = container_of(cdev, struct aw2013_led, cdev);
-
 	led->cdev.brightness = brightness;
 
 	schedule_work(&led->brightness_work);
@@ -385,7 +384,7 @@ static int aw_2013_check_chipid(struct aw2013_led *led)
 	u8 val;
 
 	aw2013_write(led, AW_REG_RESET, AW_LED_RESET_MASK);
-	usleep_range(AW_LED_RESET_DELAY-2,AW_LED_RESET_DELAY);
+	usleep(AW_LED_RESET_DELAY);
 	aw2013_read(led, AW_REG_RESET, &val);
 	if (val == AW2013_CHIPID)
 		return 0;
@@ -559,9 +558,10 @@ static int aw2013_led_probe(struct i2c_client *client,
 
 	led_array = devm_kzalloc(&client->dev,
 			(sizeof(struct aw2013_led) * num_leds), GFP_KERNEL);
-	if (!led_array)
+	if (!led_array) {
+		dev_err(&client->dev, "Unable to allocate memory\n");
 		return -ENOMEM;
-
+	}
 	led_array->client = client;
 	led_array->num_leds = num_leds;
 

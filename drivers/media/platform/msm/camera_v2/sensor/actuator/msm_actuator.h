@@ -25,16 +25,13 @@
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
-#define	MSM_ACTUATOR_MAX_VREGS (10)
-#define	ACTUATOR_MAX_POLL_COUNT 10
+#define	MSM_ACTUATOT_MAX_VREGS (10)
 
 struct msm_actuator_ctrl_t;
 
 enum msm_actuator_state_t {
-	ACT_ENABLE_STATE,
-	ACT_OPS_ACTIVE,
-	ACT_OPS_INACTIVE,
-	ACT_DISABLE_STATE,
+	ACTUATOR_POWER_DOWN,
+	ACTUATOR_POWER_UP,
 };
 
 struct msm_actuator_func_tbl {
@@ -68,7 +65,7 @@ struct msm_actuator {
 
 struct msm_actuator_vreg {
 	struct camera_vreg_t *cam_vreg;
-	void *data[MSM_ACTUATOR_MAX_VREGS];
+	void *data[MSM_ACTUATOT_MAX_VREGS];
 	int num_vreg;
 };
 
@@ -82,7 +79,7 @@ struct msm_actuator_ctrl_t {
 	enum af_camera_name cam_name;
 	struct mutex *actuator_mutex;
 	struct msm_actuator_func_tbl *func_tbl;
-	enum msm_camera_i2c_data_type i2c_data_type;
+	enum msm_actuator_data_type i2c_data_type;
 	struct v4l2_subdev sdev;
 	struct v4l2_subdev_ops *act_v4l2_subdev_ops;
 
@@ -105,9 +102,6 @@ struct msm_actuator_ctrl_t {
 	struct msm_actuator_vreg vreg_cfg;
 	struct park_lens_data_t park_lens;
 	uint32_t max_code_size;
-	struct msm_camera_gpio_conf *gconf;
-	struct msm_pinctrl_info pinctrl_info;
-	uint8_t cam_pinctrl_status;
 };
 
 #endif

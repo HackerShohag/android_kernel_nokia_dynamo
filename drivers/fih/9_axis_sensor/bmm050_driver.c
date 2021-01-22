@@ -1303,23 +1303,23 @@ static ssize_t bmm_driver_version_show(struct device *dev
 
 static DEVICE_ATTR(chip_id, S_IRUGO,
 		bmm_show_chip_id, NULL);
-static DEVICE_ATTR(op_mode, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(op_mode, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_op_mode, bmm_store_op_mode);
-static DEVICE_ATTR(odr, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(odr, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_odr, bmm_store_odr);
-static DEVICE_ATTR(rept_xy, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(rept_xy, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_rept_xy, bmm_store_rept_xy);
-static DEVICE_ATTR(rept_z, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(rept_z, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_rept_z, bmm_store_rept_z);
 static DEVICE_ATTR(value, S_IRUGO,
 		bmm_show_value, NULL);
 static DEVICE_ATTR(value_raw, S_IRUGO,
 		bmm_show_value_raw, NULL);
-static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_enable, bmm_store_enable);
-static DEVICE_ATTR(delay, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(delay, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_delay, bmm_store_delay);
-static DEVICE_ATTR(test, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(test, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_test, bmm_store_test);
 static DEVICE_ATTR(reg, S_IRUGO,
 		bmm_show_reg, NULL);
@@ -1327,7 +1327,7 @@ static DEVICE_ATTR(place, S_IRUGO,
 		bmm_show_place, NULL);
 static DEVICE_ATTR(driver_version, S_IRUGO,
 		bmm_driver_version_show, NULL);
-static DEVICE_ATTR(enable_timer, S_IRUGO|S_IWUSR|S_IWGRP,
+static DEVICE_ATTR(enable_timer, S_IRUGO|S_IWUSR|S_IWGRP|S_IWOTH,
 		bmm_show_enable_timer, bmm_store_enable_timer);
 static struct attribute *bmm_attributes[] = {
 	&dev_attr_chip_id.attr,

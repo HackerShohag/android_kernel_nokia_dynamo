@@ -26,10 +26,8 @@
 #include "ar-internal.h"
 
 static int rxrpc_vet_description_s(const char *);
-static int rxrpc_preparse(struct key_preparsed_payload *);
-static int rxrpc_preparse_s(struct key_preparsed_payload *);
-static void rxrpc_free_preparse(struct key_preparsed_payload *);
-static void rxrpc_free_preparse_s(struct key_preparsed_payload *);
+static int rxrpc_instantiate(struct key *, struct key_preparsed_payload *);
+static int rxrpc_instantiate_s(struct key *, struct key_preparsed_payload *);
 static void rxrpc_destroy(struct key *);
 static void rxrpc_destroy_s(struct key *);
 static void rxrpc_describe(const struct key *, struct seq_file *);
@@ -41,9 +39,8 @@ static long rxrpc_read(const struct key *, char __user *, size_t);
  */
 struct key_type key_type_rxrpc = {
 	.name		= "rxrpc",
-	.preparse	= rxrpc_preparse,
-	.free_preparse	= rxrpc_free_preparse,
-	.instantiate	= generic_key_instantiate,
+	.instantiate	= rxrpc_instantiate,
+	.match		= user_match,
 	.destroy	= rxrpc_destroy,
 	.describe	= rxrpc_describe,
 	.read		= rxrpc_read,
@@ -57,9 +54,8 @@ EXPORT_SYMBOL(key_type_rxrpc);
 struct key_type key_type_rxrpc_s = {
 	.name		= "rxrpc_s",
 	.vet_description = rxrpc_vet_description_s,
-	.preparse	= rxrpc_preparse_s,
-	.free_preparse	= rxrpc_free_preparse_s,
-	.instantiate	= generic_key_instantiate,
+	.instantiate	= rxrpc_instantiate_s,
+	.match		= user_match,
 	.destroy	= rxrpc_destroy_s,
 	.describe	= rxrpc_describe,
 };
@@ -85,13 +81,13 @@ static int rxrpc_vet_description_s(const char *desc)
  * parse an RxKAD type XDR format token
  * - the caller guarantees we have at least 4 words
  */
-static int rxrpc_preparse_xdr_rxkad(struct key_preparsed_payload *prep,
-				    size_t datalen,
-				    const __be32 *xdr, unsigned int toklen)
+static int rxrpc_instantiate_xdr_rxkad(struct key *key, const __be32 *xdr,
+				       unsigned int toklen)
 {
 	struct rxrpc_key_token *token, **pptoken;
 	size_t plen;
 	u32 tktlen;
+	int ret;
 
 	_enter(",{%x,%x,%x,%x},%u",
 	       ntohl(xdr[0]), ntohl(xdr[1]), ntohl(xdr[2]), ntohl(xdr[3]),
@@ -103,11 +99,13 @@ static int rxrpc_preparse_xdr_rxkad(struct key_preparsed_payload *prep,
 	_debug("tktlen: %x", tktlen);
 	if (tktlen > AFSTOKEN_RK_TIX_MAX)
 		return -EKEYREJECTED;
-	if (toklen < 8 * 4 + tktlen)
+	if (8 * 4 + tktlen != toklen)
 		return -EKEYREJECTED;
 
 	plen = sizeof(*token) + sizeof(*token->kad) + tktlen;
-	prep->quotalen = datalen + plen;
+	ret = key_payload_reserve(key, key->datalen + plen);
+	if (ret < 0)
+		return ret;
 
 	plen -= sizeof(*token);
 	token = kzalloc(sizeof(*token), GFP_KERNEL);
@@ -148,16 +146,16 @@ static int rxrpc_preparse_xdr_rxkad(struct key_preparsed_payload *prep,
 		       token->kad->ticket[6], token->kad->ticket[7]);
 
 	/* count the number of tokens attached */
-	prep->type_data[0] = (void *)((unsigned long)prep->type_data[0] + 1);
+	key->type_data.x[0]++;
 
 	/* attach the data */
-	for (pptoken = (struct rxrpc_key_token **)&prep->payload[0];
+	for (pptoken = (struct rxrpc_key_token **)&key->payload.data;
 	     *pptoken;
 	     pptoken = &(*pptoken)->next)
 		continue;
 	*pptoken = token;
-	if (token->kad->expiry < prep->expiry)
-		prep->expiry = token->kad->expiry;
+	if (token->kad->expiry < key->expiry)
+		key->expiry = token->kad->expiry;
 
 	_leave(" = 0");
 	return 0;
@@ -215,7 +213,7 @@ static int rxrpc_krb5_decode_principal(struct krb5_principal *princ,
 				       unsigned int *_toklen)
 {
 	const __be32 *xdr = *_xdr;
-	unsigned int toklen = *_toklen, n_parts, loop, tmp, paddedlen;
+	unsigned int toklen = *_toklen, n_parts, loop, tmp;
 
 	/* there must be at least one name, and at least #names+1 length
 	 * words */
@@ -245,16 +243,16 @@ static int rxrpc_krb5_decode_principal(struct krb5_principal *princ,
 		toklen -= 4;
 		if (tmp <= 0 || tmp > AFSTOKEN_STRING_MAX)
 			return -EINVAL;
-		paddedlen = (tmp + 3) & ~3;
-		if (paddedlen > toklen)
+		if (tmp > toklen)
 			return -EINVAL;
 		princ->name_parts[loop] = kmalloc(tmp + 1, GFP_KERNEL);
 		if (!princ->name_parts[loop])
 			return -ENOMEM;
 		memcpy(princ->name_parts[loop], xdr, tmp);
 		princ->name_parts[loop][tmp] = 0;
-		toklen -= paddedlen;
-		xdr += paddedlen >> 2;
+		tmp = (tmp + 3) & ~3;
+		toklen -= tmp;
+		xdr += tmp >> 2;
 	}
 
 	if (toklen < 4)
@@ -263,16 +261,16 @@ static int rxrpc_krb5_decode_principal(struct krb5_principal *princ,
 	toklen -= 4;
 	if (tmp <= 0 || tmp > AFSTOKEN_K5_REALM_MAX)
 		return -EINVAL;
-	paddedlen = (tmp + 3) & ~3;
-	if (paddedlen > toklen)
+	if (tmp > toklen)
 		return -EINVAL;
 	princ->realm = kmalloc(tmp + 1, GFP_KERNEL);
 	if (!princ->realm)
 		return -ENOMEM;
 	memcpy(princ->realm, xdr, tmp);
 	princ->realm[tmp] = 0;
-	toklen -= paddedlen;
-	xdr += paddedlen >> 2;
+	tmp = (tmp + 3) & ~3;
+	toklen -= tmp;
+	xdr += tmp >> 2;
 
 	_debug("%s/...@%s", princ->name_parts[0], princ->realm);
 
@@ -291,7 +289,7 @@ static int rxrpc_krb5_decode_tagged_data(struct krb5_tagged_data *td,
 					 unsigned int *_toklen)
 {
 	const __be32 *xdr = *_xdr;
-	unsigned int toklen = *_toklen, len, paddedlen;
+	unsigned int toklen = *_toklen, len;
 
 	/* there must be at least one tag and one length word */
 	if (toklen <= 8)
@@ -305,17 +303,15 @@ static int rxrpc_krb5_decode_tagged_data(struct krb5_tagged_data *td,
 	toklen -= 8;
 	if (len > max_data_size)
 		return -EINVAL;
-	paddedlen = (len + 3) & ~3;
-	if (paddedlen > toklen)
-		return -EINVAL;
 	td->data_len = len;
 
 	if (len > 0) {
 		td->data = kmemdup(xdr, len, GFP_KERNEL);
 		if (!td->data)
 			return -ENOMEM;
-		toklen -= paddedlen;
-		xdr += paddedlen >> 2;
+		len = (len + 3) & ~3;
+		toklen -= len;
+		xdr += len >> 2;
 	}
 
 	_debug("tag %x len %x", td->tag, td->data_len);
@@ -350,7 +346,7 @@ static int rxrpc_krb5_decode_tagged_array(struct krb5_tagged_data **_td,
 
 	n_elem = ntohl(*xdr++);
 	toklen -= 4;
-	if (n_elem > max_n_elem)
+	if (n_elem < 0 || n_elem > max_n_elem)
 		return -EINVAL;
 	*_n_elem = n_elem;
 	if (n_elem > 0) {
@@ -387,7 +383,7 @@ static int rxrpc_krb5_decode_ticket(u8 **_ticket, u16 *_tktlen,
 				    const __be32 **_xdr, unsigned int *_toklen)
 {
 	const __be32 *xdr = *_xdr;
-	unsigned int toklen = *_toklen, len, paddedlen;
+	unsigned int toklen = *_toklen, len;
 
 	/* there must be at least one length word */
 	if (toklen <= 4)
@@ -399,9 +395,6 @@ static int rxrpc_krb5_decode_ticket(u8 **_ticket, u16 *_tktlen,
 	toklen -= 4;
 	if (len > AFSTOKEN_K5_TIX_MAX)
 		return -EINVAL;
-	paddedlen = (len + 3) & ~3;
-	if (paddedlen > toklen)
-		return -EINVAL;
 	*_tktlen = len;
 
 	_debug("ticket len %u", len);
@@ -410,8 +403,9 @@ static int rxrpc_krb5_decode_ticket(u8 **_ticket, u16 *_tktlen,
 		*_ticket = kmemdup(xdr, len, GFP_KERNEL);
 		if (!*_ticket)
 			return -ENOMEM;
-		toklen -= paddedlen;
-		xdr += paddedlen >> 2;
+		len = (len + 3) & ~3;
+		toklen -= len;
+		xdr += len >> 2;
 	}
 
 	*_xdr = xdr;
@@ -424,9 +418,8 @@ static int rxrpc_krb5_decode_ticket(u8 **_ticket, u16 *_tktlen,
  * parse an RxK5 type XDR format token
  * - the caller guarantees we have at least 4 words
  */
-static int rxrpc_preparse_xdr_rxk5(struct key_preparsed_payload *prep,
-				   size_t datalen,
-				   const __be32 *xdr, unsigned int toklen)
+static int rxrpc_instantiate_xdr_rxk5(struct key *key, const __be32 *xdr,
+				      unsigned int toklen)
 {
 	struct rxrpc_key_token *token, **pptoken;
 	struct rxk5_key *rxk5;
@@ -439,7 +432,9 @@ static int rxrpc_preparse_xdr_rxk5(struct key_preparsed_payload *prep,
 
 	/* reserve some payload space for this subkey - the length of the token
 	 * is a reasonable approximation */
-	prep->quotalen = datalen + toklen;
+	ret = key_payload_reserve(key, key->datalen + toklen);
+	if (ret < 0)
+		return ret;
 
 	token = kzalloc(sizeof(*token), GFP_KERNEL);
 	if (!token)
@@ -525,14 +520,14 @@ static int rxrpc_preparse_xdr_rxk5(struct key_preparsed_payload *prep,
 	if (toklen != 0)
 		goto inval;
 
-	/* attach the payload */
-	for (pptoken = (struct rxrpc_key_token **)&prep->payload[0];
+	/* attach the payload to the key */
+	for (pptoken = (struct rxrpc_key_token **)&key->payload.data;
 	     *pptoken;
 	     pptoken = &(*pptoken)->next)
 		continue;
 	*pptoken = token;
-	if (token->kad->expiry < prep->expiry)
-		prep->expiry = token->kad->expiry;
+	if (token->kad->expiry < key->expiry)
+		key->expiry = token->kad->expiry;
 
 	_leave(" = 0");
 	return 0;
@@ -550,17 +545,16 @@ error:
  * attempt to parse the data as the XDR format
  * - the caller guarantees we have more than 7 words
  */
-static int rxrpc_preparse_xdr(struct key_preparsed_payload *prep)
+static int rxrpc_instantiate_xdr(struct key *key, const void *data, size_t datalen)
 {
-	const __be32 *xdr = prep->data, *token;
+	const __be32 *xdr = data, *token;
 	const char *cp;
-	unsigned int len, paddedlen, loop, ntoken, toklen, sec_ix;
-	size_t datalen = prep->datalen;
+	unsigned int len, tmp, loop, ntoken, toklen, sec_ix;
 	int ret;
 
 	_enter(",{%x,%x,%x,%x},%zu",
 	       ntohl(xdr[0]), ntohl(xdr[1]), ntohl(xdr[2]), ntohl(xdr[3]),
-	       prep->datalen);
+	       datalen);
 
 	if (datalen > AFSTOKEN_LENGTH_MAX)
 		goto not_xdr;
@@ -580,21 +574,22 @@ static int rxrpc_preparse_xdr(struct key_preparsed_payload *prep)
 	if (len < 1 || len > AFSTOKEN_CELL_MAX)
 		goto not_xdr;
 	datalen -= 4;
-	paddedlen = (len + 3) & ~3;
-	if (paddedlen > datalen)
+	tmp = (len + 3) & ~3;
+	if (tmp > datalen)
 		goto not_xdr;
 
 	cp = (const char *) xdr;
 	for (loop = 0; loop < len; loop++)
 		if (!isprint(cp[loop]))
 			goto not_xdr;
-	for (; loop < paddedlen; loop++)
-		if (cp[loop])
-			goto not_xdr;
+	if (len < tmp)
+		for (; loop < tmp; loop++)
+			if (cp[loop])
+				goto not_xdr;
 	_debug("cellname: [%u/%u] '%*.*s'",
-	       len, paddedlen, len, len, (const char *) xdr);
-	datalen -= paddedlen;
-	xdr += paddedlen >> 2;
+	       len, tmp, len, len, (const char *) xdr);
+	datalen -= tmp;
+	xdr += tmp >> 2;
 
 	/* get the token count */
 	if (datalen < 12)
@@ -615,11 +610,10 @@ static int rxrpc_preparse_xdr(struct key_preparsed_payload *prep)
 		sec_ix = ntohl(*xdr);
 		datalen -= 4;
 		_debug("token: [%x/%zx] %x", toklen, datalen, sec_ix);
-		paddedlen = (toklen + 3) & ~3;
-		if (toklen < 20 || toklen > datalen || paddedlen > datalen)
+		if (toklen < 20 || toklen > datalen)
 			goto not_xdr;
-		datalen -= paddedlen;
-		xdr += paddedlen >> 2;
+		datalen -= (toklen + 3) & ~3;
+		xdr += (toklen + 3) >> 2;
 
 	} while (--loop > 0);
 
@@ -641,13 +635,13 @@ static int rxrpc_preparse_xdr(struct key_preparsed_payload *prep)
 
 		switch (sec_ix) {
 		case RXRPC_SECURITY_RXKAD:
-			ret = rxrpc_preparse_xdr_rxkad(prep, datalen, xdr, toklen);
+			ret = rxrpc_instantiate_xdr_rxkad(key, xdr, toklen);
 			if (ret != 0)
 				goto error;
 			break;
 
 		case RXRPC_SECURITY_RXK5:
-			ret = rxrpc_preparse_xdr_rxk5(prep, datalen, xdr, toklen);
+			ret = rxrpc_instantiate_xdr_rxk5(key, xdr, toklen);
 			if (ret != 0)
 				goto error;
 			break;
@@ -671,9 +665,8 @@ error:
 }
 
 /*
- * Preparse an rxrpc defined key.
- *
- * Data should be of the form:
+ * instantiate an rxrpc defined key
+ * data should be of the form:
  *	OFFSET	LEN	CONTENT
  *	0	4	key interface version number
  *	4	2	security index (type)
@@ -685,7 +678,7 @@ error:
  *
  * if no data is provided, then a no-security key is made
  */
-static int rxrpc_preparse(struct key_preparsed_payload *prep)
+static int rxrpc_instantiate(struct key *key, struct key_preparsed_payload *prep)
 {
 	const struct rxrpc_key_data_v1 *v1;
 	struct rxrpc_key_token *token, **pp;
@@ -693,7 +686,7 @@ static int rxrpc_preparse(struct key_preparsed_payload *prep)
 	u32 kver;
 	int ret;
 
-	_enter("%zu", prep->datalen);
+	_enter("{%x},,%zu", key_serial(key), prep->datalen);
 
 	/* handle a no-security key */
 	if (!prep->data && prep->datalen == 0)
@@ -701,7 +694,7 @@ static int rxrpc_preparse(struct key_preparsed_payload *prep)
 
 	/* determine if the XDR payload format is being used */
 	if (prep->datalen > 7 * 4) {
-		ret = rxrpc_preparse_xdr(prep);
+		ret = rxrpc_instantiate_xdr(key, prep->data, prep->datalen);
 		if (ret != -EPROTO)
 			return ret;
 	}
@@ -750,7 +743,9 @@ static int rxrpc_preparse(struct key_preparsed_payload *prep)
 		goto error;
 
 	plen = sizeof(*token->kad) + v1->ticket_length;
-	prep->quotalen = plen + sizeof(*token);
+	ret = key_payload_reserve(key, plen + sizeof(*token));
+	if (ret < 0)
+		goto error;
 
 	ret = -ENOMEM;
 	token = kzalloc(sizeof(*token), GFP_KERNEL);
@@ -767,16 +762,15 @@ static int rxrpc_preparse(struct key_preparsed_payload *prep)
 	memcpy(&token->kad->session_key, &v1->session_key, 8);
 	memcpy(&token->kad->ticket, v1->ticket, v1->ticket_length);
 
-	/* count the number of tokens attached */
-	prep->type_data[0] = (void *)((unsigned long)prep->type_data[0] + 1);
-
 	/* attach the data */
-	pp = (struct rxrpc_key_token **)&prep->payload[0];
+	key->type_data.x[0]++;
+
+	pp = (struct rxrpc_key_token **)&key->payload.data;
 	while (*pp)
 		pp = &(*pp)->next;
 	*pp = token;
-	if (token->kad->expiry < prep->expiry)
-		prep->expiry = token->kad->expiry;
+	if (token->kad->expiry < key->expiry)
+		key->expiry = token->kad->expiry;
 	token = NULL;
 	ret = 0;
 
@@ -787,14 +781,44 @@ error:
 }
 
 /*
- * Free token list.
+ * instantiate a server secret key
+ * data should be a pointer to the 8-byte secret key
  */
-static void rxrpc_free_token_list(struct rxrpc_key_token *token)
+static int rxrpc_instantiate_s(struct key *key,
+			       struct key_preparsed_payload *prep)
 {
-	struct rxrpc_key_token *next;
+	struct crypto_blkcipher *ci;
 
-	for (; token; token = next) {
-		next = token->next;
+	_enter("{%x},,%zu", key_serial(key), prep->datalen);
+
+	if (prep->datalen != 8)
+		return -EINVAL;
+
+	memcpy(&key->type_data, prep->data, 8);
+
+	ci = crypto_alloc_blkcipher("pcbc(des)", 0, CRYPTO_ALG_ASYNC);
+	if (IS_ERR(ci)) {
+		_leave(" = %ld", PTR_ERR(ci));
+		return PTR_ERR(ci);
+	}
+
+	if (crypto_blkcipher_setkey(ci, prep->data, 8) < 0)
+		BUG();
+
+	key->payload.data = ci;
+	_leave(" = 0");
+	return 0;
+}
+
+/*
+ * dispose of the data dangling from the corpse of a rxrpc key
+ */
+static void rxrpc_destroy(struct key *key)
+{
+	struct rxrpc_key_token *token;
+
+	while ((token = key->payload.data)) {
+		key->payload.data = token->next;
 		switch (token->security_index) {
 		case RXRPC_SECURITY_RXKAD:
 			kfree(token->kad);
@@ -811,61 +835,6 @@ static void rxrpc_free_token_list(struct rxrpc_key_token *token)
 
 		kfree(token);
 	}
-}
-
-/*
- * Clean up preparse data.
- */
-static void rxrpc_free_preparse(struct key_preparsed_payload *prep)
-{
-	rxrpc_free_token_list(prep->payload[0]);
-}
-
-/*
- * Preparse a server secret key.
- *
- * The data should be the 8-byte secret key.
- */
-static int rxrpc_preparse_s(struct key_preparsed_payload *prep)
-{
-	struct crypto_blkcipher *ci;
-
-	_enter("%zu", prep->datalen);
-
-	if (prep->datalen != 8)
-		return -EINVAL;
-
-	memcpy(&prep->type_data, prep->data, 8);
-
-	ci = crypto_alloc_blkcipher("pcbc(des)", 0, CRYPTO_ALG_ASYNC);
-	if (IS_ERR(ci)) {
-		_leave(" = %ld", PTR_ERR(ci));
-		return PTR_ERR(ci);
-	}
-
-	if (crypto_blkcipher_setkey(ci, prep->data, 8) < 0)
-		BUG();
-
-	prep->payload[0] = ci;
-	_leave(" = 0");
-	return 0;
-}
-
-/*
- * Clean up preparse data.
- */
-static void rxrpc_free_preparse_s(struct key_preparsed_payload *prep)
-{
-	if (prep->payload[0])
-		crypto_free_blkcipher(prep->payload[0]);
-}
-
-/*
- * dispose of the data dangling from the corpse of a rxrpc key
- */
-static void rxrpc_destroy(struct key *key)
-{
-	rxrpc_free_token_list(key->payload.data);
 }
 
 /*
@@ -1145,7 +1114,7 @@ static long rxrpc_read(const struct key *key,
 		if (copy_to_user(xdr, (s), _l) != 0)			\
 			goto fault;					\
 		if (_l & 3 &&						\
-		    copy_to_user((u8 __user *)xdr + _l, &zero, 4 - (_l & 3)) != 0) \
+		    copy_to_user((u8 *)xdr + _l, &zero, 4 - (_l & 3)) != 0) \
 			goto fault;					\
 		xdr += (_l + 3) >> 2;					\
 	} while(0)

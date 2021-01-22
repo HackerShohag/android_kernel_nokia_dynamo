@@ -127,12 +127,15 @@ static DEVICE_ATTR(led_current, S_IRUGO | S_IWUSR, lp55xx_show_current,
 		lp55xx_store_current);
 static DEVICE_ATTR(max_current, S_IRUGO , lp55xx_show_max_current, NULL);
 
-static struct attribute *lp55xx_led_attrs[] = {
+static struct attribute *lp55xx_led_attributes[] = {
 	&dev_attr_led_current.attr,
 	&dev_attr_max_current.attr,
 	NULL,
 };
-ATTRIBUTE_GROUPS(lp55xx_led);
+
+static struct attribute_group lp55xx_led_attr_group = {
+	.attrs = lp55xx_led_attributes
+};
 
 static void lp55xx_set_brightness(struct led_classdev *cdev,
 			     enum led_brightness brightness)
@@ -173,7 +176,6 @@ static int lp55xx_init_led(struct lp55xx_led *led,
 	}
 
 	led->cdev.brightness_set = lp55xx_set_brightness;
-	led->cdev.groups = lp55xx_led_groups;
 
 	if (pdata->led_config[chan].name) {
 		led->cdev.name = pdata->led_config[chan].name;
@@ -183,9 +185,21 @@ static int lp55xx_init_led(struct lp55xx_led *led,
 		led->cdev.name = name;
 	}
 
+	/*
+	 * register led class device for each channel and
+	 * add device attributes
+	 */
+
 	ret = led_classdev_register(dev, &led->cdev);
 	if (ret) {
 		dev_err(dev, "led register err: %d\n", ret);
+		return ret;
+	}
+
+	ret = sysfs_create_group(&led->cdev.dev->kobj, &lp55xx_led_attr_group);
+	if (ret) {
+		dev_err(dev, "led sysfs err: %d\n", ret);
+		led_classdev_unregister(&led->cdev);
 		return ret;
 	}
 
@@ -222,7 +236,6 @@ static int lp55xx_request_firmware(struct lp55xx_chip *chip)
 {
 	const char *name = chip->cl->name;
 	struct device *dev = &chip->cl->dev;
-	enum lp55xx_engine_index idx = chip->engine_idx;
 
 	return request_firmware_nowait(THIS_MODULE, false, name, dev,
 				GFP_KERNEL, chip, lp55xx_firmware_loaded);
@@ -417,7 +430,6 @@ int lp55xx_init_device(struct lp55xx_chip *chip)
 		gpio_set_value(pdata->enable_gpio, 1);
 		usleep_range(1000, 2000); /* 500us abs min. */
 	}
-
 	// add for disable sbl gpio start
 	if (gpio_is_valid(pdata->gpio_b))
 	{
@@ -578,57 +590,6 @@ void lp55xx_unregister_sysfs(struct lp55xx_chip *chip)
 	sysfs_remove_group(&dev->kobj, &lp55xx_engine_attr_group);
 }
 EXPORT_SYMBOL_GPL(lp55xx_unregister_sysfs);
-
-int lp55xx_of_populate_pdata(struct device *dev, struct device_node *np)
-{
-	struct device_node *child;
-	struct lp55xx_platform_data *pdata;
-	struct lp55xx_led_config *cfg;
-	int num_channels;
-	int i = 0;
-
-	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
-	if (!pdata)
-		return -ENOMEM;
-
-	num_channels = of_get_child_count(np);
-	if (num_channels == 0) {
-		dev_err(dev, "no LED channels\n");
-		return -EINVAL;
-	}
-
-	cfg = devm_kzalloc(dev, sizeof(*cfg) * num_channels, GFP_KERNEL);
-	if (!cfg)
-		return -ENOMEM;
-
-	pdata->led_config = &cfg[0];
-	pdata->num_channels = num_channels;
-
-	for_each_child_of_node(np, child) {
-		cfg[i].chan_nr = i;
-
-		of_property_read_string(child, "chan-name", &cfg[i].name);
-		of_property_read_u8(child, "led-cur", &cfg[i].led_current);
-		of_property_read_u8(child, "max-cur", &cfg[i].max_current);
-		cfg[i].default_trigger =
-			of_get_property(child, "linux,default-trigger", NULL);
-
-		i++;
-	}
-
-	of_property_read_string(np, "label", &pdata->label);
-	of_property_read_u8(np, "clock-mode", &pdata->clock_mode);
-
-	pdata->enable_gpio = of_get_named_gpio(np, "enable-gpio", 0);
-
-	/* LP8501 specific */
-	of_property_read_u8(np, "pwr-sel", (u8 *)&pdata->pwr_sel);
-
-	dev->platform_data = pdata;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(lp55xx_of_populate_pdata);
 
 int lp55xx_of_populate_pdata(struct device *dev, struct device_node *np)
 {

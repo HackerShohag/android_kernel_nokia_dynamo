@@ -16,7 +16,6 @@
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
-#include <linux/of.h>
 #include <linux/pm_runtime.h>
 
 #include <linux/mmc/card.h>
@@ -26,9 +25,16 @@
 #include "sdio_cis.h"
 #include "bus.h"
 
-#define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
+#include "../../../arch/arm/mach-msm/fih/fih_sd_status.h"
 
-static ssize_t type_show(struct device *dev,
+#define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
+#define RUNTIME_SUSPEND_DELAY_MS 10000
+//@20150710  FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+#define RUNTIME_SHORT_SUSPEND_DELAY_MS 5000
+static bool short_suspen_delay=false;
+//@20150707 FAO-4646 Add, end
+static ssize_t mmc_type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct mmc_card *card = mmc_dev_to_card(dev);
@@ -46,13 +52,11 @@ static ssize_t type_show(struct device *dev,
 		return -EFAULT;
 	}
 }
-static DEVICE_ATTR_RO(type);
 
-static struct attribute *mmc_dev_attrs[] = {
-	&dev_attr_type.attr,
-	NULL,
+static struct device_attribute mmc_dev_attrs[] = {
+	__ATTR(type, S_IRUGO, mmc_type_show, NULL),
+	__ATTR_NULL,
 };
-ATTRIBUTE_GROUPS(mmc_dev);
 
 /*
  * This currently matches any MMC driver to any MMC card - drivers
@@ -104,6 +108,13 @@ mmc_bus_uevent(struct device *dev, struct kobj_uevent_env *env)
 	 */
 	retval = add_uevent_var(env, "MODALIAS=mmc:block");
 
+	if(card->type == MMC_TYPE_SD && strstr(env->buf, "ACTION=add")) {
+		fih_sd_status_setup("1");
+	}
+	else if(card->type == MMC_TYPE_SD && strstr(env->buf, "ACTION=remove")) {
+		fih_sd_status_setup("0");
+	}
+
 	return retval;
 }
 
@@ -129,8 +140,6 @@ static void mmc_bus_shutdown(struct device *dev)
 {
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
 	struct mmc_card *card = mmc_dev_to_card(dev);
-	struct mmc_host *host = card->host;
-	int ret;
 
 	if (!drv) {
 		pr_debug("%s: %s: drv is NULL\n", dev_name(dev), __func__);
@@ -142,15 +151,8 @@ static void mmc_bus_shutdown(struct device *dev)
 		return;
 	}
 
-	if (dev->driver && drv->shutdown)
+	if (drv->shutdown)
 		drv->shutdown(card);
-
-	if (host->bus_ops->shutdown) {
-		ret = host->bus_ops->shutdown(host);
-		if (ret)
-			pr_warn("%s: error %d during shutdown\n",
-				mmc_hostname(host), ret);
-	}
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -158,32 +160,10 @@ static int mmc_bus_suspend(struct device *dev)
 {
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
 	struct mmc_card *card = mmc_dev_to_card(dev);
-	struct mmc_host *host = card->host;
-	int ret;
+	int ret = 0;
 
-	if (dev->driver && drv->suspend) {
+	if (dev->driver && drv->suspend)
 		ret = drv->suspend(card);
-		if (ret)
-			return ret;
-	}
-
-	if (mmc_bus_needs_resume(host))
-		return 0;
-	ret = host->bus_ops->suspend(host);
-
-	/*
-	 * bus_ops->suspend may fail due to some reason
-	 * In such cases if we return error to PM framework
-	 * from here without calling drv->resume then mmc
-	 * request may get stuck since PM framework will assume
-	 * that mmc bus is not suspended (because of error) and
-	 * it won't call resume again.
-	 *
-	 * So in case of error call drv->resume.
-	 */
-	if (ret && dev->driver && drv->resume)
-		drv->resume(card);
-
 	return ret;
 }
 
@@ -191,65 +171,116 @@ static int mmc_bus_resume(struct device *dev)
 {
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
 	struct mmc_card *card = mmc_dev_to_card(dev);
-	struct mmc_host *host = card->host;
-	int ret;
+	int ret = 0;
 
-	if (mmc_bus_manual_resume(host)) {
-		host->bus_resume_flags |= MMC_BUSRESUME_NEEDS_RESUME;
-		goto skip_full_resume;
-	}
-
-	ret = host->bus_ops->resume(host);
-	if (ret)
-		pr_warn("%s: error %d during resume (card was removed?)\n",
-			mmc_hostname(host), ret);
-
-skip_full_resume:
 	if (dev->driver && drv->resume)
 		ret = drv->resume(card);
-
 	return ret;
 }
 #endif
 
 #ifdef CONFIG_PM_RUNTIME
+
 static int mmc_runtime_suspend(struct device *dev)
 {
 	struct mmc_card *card = mmc_dev_to_card(dev);
-	struct mmc_host *host = card->host;
 
-	if (mmc_bus_needs_resume(host))
-		return 0;
-
-	return host->bus_ops->runtime_suspend(host);
+	if (mmc_use_core_runtime_pm(card->host)) {
+		/*
+		 * If idle time bkops is running on the card, let's not get
+		 * into suspend.
+		 */
+		if (mmc_card_doing_bkops(card) && mmc_card_is_prog_state(card))
+			return -EBUSY;
+		else
+			return 0;
+	} else {
+		return mmc_power_save_host(card->host);
+	}
 }
 
 static int mmc_runtime_resume(struct device *dev)
 {
 	struct mmc_card *card = mmc_dev_to_card(dev);
+
+	if (mmc_use_core_runtime_pm(card->host))
+		return 0;
+	else
+		return mmc_power_restore_host(card->host);
+}
+
+static int mmc_runtime_idle(struct device *dev)
+{
+	struct mmc_card *card = mmc_dev_to_card(dev);
 	struct mmc_host *host = card->host;
+	int ret = 0;
 
-	if (mmc_bus_needs_resume(host))
-		host->bus_resume_flags &= ~MMC_BUSRESUME_NEEDS_RESUME;
+	if (mmc_use_core_runtime_pm(card->host)) {
+		ret = pm_schedule_suspend(dev, card->idle_timeout);
+		if ((ret < 0) && (dev->power.runtime_error ||
+				  dev->power.disable_depth > 0)) {
+			pr_err("%s: %s: %s: pm_schedule_suspend failed: err: %d\n",
+			       mmc_hostname(host), __func__, dev_name(dev),
+			       ret);
+			return ret;
+		}
+	}
 
-	return host->bus_ops->runtime_resume(host);
+	return ret;
 }
 
 #endif /* !CONFIG_PM_RUNTIME */
 
 static const struct dev_pm_ops mmc_bus_pm_ops = {
-	SET_RUNTIME_PM_OPS(mmc_runtime_suspend, mmc_runtime_resume, NULL)
+	SET_RUNTIME_PM_OPS(mmc_runtime_suspend, mmc_runtime_resume,
+			mmc_runtime_idle)
 	SET_SYSTEM_SLEEP_PM_OPS(mmc_bus_suspend, mmc_bus_resume)
 };
 
+static ssize_t show_rpm_delay(struct device *dev, struct device_attribute *attr,
+			      char *buf)
+{
+	struct mmc_card *card = mmc_dev_to_card(dev);
+
+	if (!card) {
+		pr_err("%s: %s: card is NULL\n", dev_name(dev), __func__);
+		return -EINVAL;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", card->idle_timeout);
+}
+
+static ssize_t store_rpm_delay(struct device *dev, struct device_attribute
+			       *attr, const char *buf, size_t count)
+{
+	struct mmc_card *card = mmc_dev_to_card(dev);
+	unsigned int delay;
+
+	if (!card) {
+		pr_err("%s: %s: card is NULL\n", dev_name(dev), __func__);
+		return -EINVAL;
+	}
+
+	if (!kstrtou32(buf, 0, &delay)) {
+		if (delay < 2000) {
+			pr_err("%s: %s: less than 2 sec delay is unsupported\n",
+			       mmc_hostname(card->host), __func__);
+			return -EINVAL;
+		}
+		card->idle_timeout = delay;
+	}
+
+	return count;
+}
+
 static struct bus_type mmc_bus_type = {
 	.name		= "mmc",
-	.dev_groups	= mmc_dev_groups,
+	.dev_attrs	= mmc_dev_attrs,
 	.match		= mmc_bus_match,
 	.uevent		= mmc_bus_uevent,
 	.probe		= mmc_bus_probe,
 	.remove		= mmc_bus_remove,
-	.shutdown	= mmc_bus_shutdown,
+	.shutdown        = mmc_bus_shutdown,
 	.pm		= &mmc_bus_pm_ops,
 };
 
@@ -287,6 +318,19 @@ void mmc_unregister_driver(struct mmc_driver *drv)
 
 EXPORT_SYMBOL(mmc_unregister_driver);
 
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+void mmc1_set_short_suspend_delay(bool rel)
+{
+  if(rel)
+       short_suspen_delay=true;
+  else
+  	short_suspen_delay=false;
+}
+
+EXPORT_SYMBOL(mmc1_set_short_suspend_delay);
+//@20150707 FAO-4646 Add, end
+
 static void mmc_release_card(struct device *dev)
 {
 	struct mmc_card *card = mmc_dev_to_card(dev);
@@ -318,8 +362,8 @@ struct mmc_card *mmc_alloc_card(struct mmc_host *host, struct device_type *type)
 	card->dev.release = mmc_release_card;
 	card->dev.type = type;
 
+	spin_lock_init(&card->bkops_info.bkops_stats.lock);
 	spin_lock_init(&card->wr_pack_stats.lock);
-	spin_lock_init(&card->bkops.stats.lock);
 
 	return card;
 }
@@ -369,24 +413,24 @@ int mmc_add_card(struct mmc_card *card)
 		break;
 	}
 
-	if (mmc_card_uhs(card) &&
+	if (mmc_sd_card_uhs(card) &&
 		(card->sd_bus_speed < ARRAY_SIZE(uhs_speeds)))
 		uhs_bus_speed_mode = uhs_speeds[card->sd_bus_speed];
 
 	if (mmc_host_is_spi(card->host)) {
 		pr_info("%s: new %s%s%s card on SPI\n",
 			mmc_hostname(card->host),
-			mmc_card_hs(card) ? "high speed " : "",
-			mmc_card_ddr52(card) ? "DDR " : "",
+			mmc_card_highspeed(card) ? "high speed " : "",
+			mmc_card_ddr_mode(card) ? "DDR " : "",
 			type);
 	} else {
-		pr_info("%s: new %s%s%s%s%s card at address %04x\n",
+		pr_info("%s: new %s%s%s%s%s%s card at address %04x\n",
 			mmc_hostname(card->host),
 			mmc_card_uhs(card) ? "ultra high speed " :
-			(mmc_card_hs(card) ? "high speed " : ""),
-			mmc_card_hs400(card) ? "HS400 " :
+			(mmc_card_highspeed(card) ? "high speed " : ""),
+			(mmc_card_hs400(card) ? "HS400 " : ""),
 			(mmc_card_hs200(card) ? "HS200 " : ""),
-			mmc_card_ddr52(card) ? "DDR " : "",
+			mmc_card_ddr_mode(card) ? "DDR " : "",
 			uhs_bus_speed_mode, type, card->rca);
 	}
 
@@ -395,21 +439,56 @@ int mmc_add_card(struct mmc_card *card)
 #endif
 	mmc_init_context_info(card->host);
 
+	ret = pm_runtime_set_active(&card->dev);
+	if (ret)
+		pr_err("%s: %s: failed setting runtime active: ret: %d\n",
+		       mmc_hostname(card->host), __func__, ret);
+	else if (!mmc_card_sdio(card) && mmc_use_core_runtime_pm(card->host))
+		pm_runtime_enable(&card->dev);
+
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+       card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
+//@20150707 FAO-4646 Add, end
+
 	if (mmc_card_sdio(card)) {
 		ret = device_init_wakeup(&card->dev, true);
 		if (ret)
 			pr_err("%s: %s: failed to init wakeup: %d\n",
 			       mmc_hostname(card->host), __func__, ret);
 	}
-
-	card->dev.of_node = mmc_of_find_child_device(card->host, 0);
-
 	ret = device_add(&card->dev);
 	if (ret)
 		return ret;
 
-	mmc_card_set_present(card);
 	device_enable_async_suspend(&card->dev);
+	if (mmc_use_core_runtime_pm(card->host) && !mmc_card_sdio(card)) {
+		card->rpm_attrib.show = show_rpm_delay;
+		card->rpm_attrib.store = store_rpm_delay;
+		sysfs_attr_init(&card->rpm_attrib.attr);
+		card->rpm_attrib.attr.name = "runtime_pm_timeout";
+		card->rpm_attrib.attr.mode = S_IRUGO | S_IWUSR;
+
+		ret = device_create_file(&card->dev, &card->rpm_attrib);
+		if (ret)
+			pr_err("%s: %s: creating runtime pm sysfs entry: failed: %d\n",
+			       mmc_hostname(card->host), __func__, ret);
+		/* Default timeout is 10 seconds */
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+		if(strncmp(mmc_hostname(card->host),"mmc1",4)){
+		card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
+		}else{
+		   if(short_suspen_delay)
+		      card->idle_timeout = RUNTIME_SHORT_SUSPEND_DELAY_MS;
+		   else
+		      card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
+			}
+		   pr_info("mmc1 card->idle_timeout: %d\n",card->idle_timeout);	
+	}
+//@20150707 FAO-4646 Add, end
+
+	mmc_card_set_present(card);
 
 	return 0;
 }
@@ -433,7 +512,6 @@ void mmc_remove_card(struct mmc_card *card)
 				mmc_hostname(card->host), card->rca);
 		}
 		device_del(&card->dev);
-		of_node_put(card->dev.of_node);
 	}
 
 	kfree(card->wr_pack_stats.packing_events);

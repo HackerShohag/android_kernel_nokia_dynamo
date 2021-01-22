@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,36 +16,13 @@
 #include <linux/workqueue.h>
 #include <linux/ipa.h>
 #include "ipa_rm_resource.h"
-#include "ipa_common_i.h"
 
 #define IPA_RM_DRV_NAME "ipa_rm"
 
-#define IPA_RM_DBG_LOW(fmt, args...) \
-	do { \
-		pr_debug(IPA_RM_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
-			## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
-			IPA_RM_DRV_NAME " %s:%d " fmt, ## args); \
-	} while (0)
 #define IPA_RM_DBG(fmt, args...) \
-	do { \
-		pr_debug(IPA_RM_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
-			## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
-			IPA_RM_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
-			IPA_RM_DRV_NAME " %s:%d " fmt, ## args); \
-	} while (0)
-
+	pr_debug(IPA_RM_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
 #define IPA_RM_ERR(fmt, args...) \
-	do { \
-		pr_err(IPA_RM_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
-			## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
-			IPA_RM_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
-			IPA_RM_DRV_NAME " %s:%d " fmt, ## args); \
-	} while (0)
+	pr_err(IPA_RM_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
 
 #define IPA_RM_RESOURCE_CONS_MAX \
 	(IPA_RM_RESOURCE_MAX - IPA_RM_RESOURCE_PROD_MAX)
@@ -65,13 +42,11 @@ int ipa_rm_cons_index(enum ipa_rm_resource_name resource_name);
  * @delayed_work: work struct
  * @ipa_rm_resource_name: name of the resource on which this work should be done
  * @needed_bw: bandwidth required for resource in Mbps
- * @dec_usage_count: decrease usage count on release ?
  */
 struct ipa_rm_delayed_release_work_type {
 	struct delayed_work		work;
 	enum ipa_rm_resource_name	resource_name;
 	u32				needed_bw;
-	bool				dec_usage_count;
 
 };
 
@@ -118,7 +93,6 @@ struct ipa_rm_wq_suspend_resume_work_type {
 	enum ipa_rm_resource_name	resource_name;
 	enum ipa_rm_resource_state	prev_state;
 	u32				needed_bw;
-	bool				inc_usage_count;
 
 };
 
@@ -129,8 +103,7 @@ int ipa_rm_wq_send_cmd(enum ipa_rm_wq_cmd wq_cmd,
 
 int ipa_rm_wq_send_resume_cmd(enum ipa_rm_resource_name resource_name,
 		enum ipa_rm_resource_state prev_state,
-		u32 needed_bw,
-		bool inc_usage_count);
+		u32 needed_bw);
 
 int ipa_rm_wq_send_suspend_cmd(enum ipa_rm_resource_name resource_name,
 		enum ipa_rm_resource_state prev_state,
@@ -147,12 +120,6 @@ void ipa_rm_perf_profile_change(enum ipa_rm_resource_name resource_name);
 int ipa_rm_request_resource_with_timer(enum ipa_rm_resource_name resource_name);
 
 void delayed_release_work_func(struct work_struct *work);
-
-int ipa_rm_add_dependency_from_ioctl(enum ipa_rm_resource_name resource_name,
-	enum ipa_rm_resource_name depends_on_name);
-
-int ipa_rm_delete_dependency_from_ioctl(enum ipa_rm_resource_name resource_name,
-	enum ipa_rm_resource_name depends_on_name);
 
 void ipa_rm_exit(void);
 

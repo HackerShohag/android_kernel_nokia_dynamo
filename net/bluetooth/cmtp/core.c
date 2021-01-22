@@ -280,16 +280,16 @@ static int cmtp_session(void *arg)
 	struct cmtp_session *session = arg;
 	struct sock *sk = session->sock->sk;
 	struct sk_buff *skb;
-	DEFINE_WAIT_FUNC(wait, woken_wake_function);
+	wait_queue_t wait;
 
 	BT_DBG("session %pK", session);
 
 	set_user_nice(current, -15);
 
+	init_waitqueue_entry(&wait, current);
 	add_wait_queue(sk_sleep(sk), &wait);
 	while (1) {
-		/* Ensure session->terminate is updated */
-		smp_mb__before_atomic();
+		set_current_state(TASK_INTERRUPTIBLE);
 
 		if (atomic_read(&session->terminate))
 			break;
@@ -306,8 +306,9 @@ static int cmtp_session(void *arg)
 
 		cmtp_process_transmit(session);
 
-		wait_woken(&wait, TASK_INTERRUPTIBLE, MAX_SCHEDULE_TIMEOUT);
+		schedule();
 	}
+	__set_current_state(TASK_RUNNING);
 	remove_wait_queue(sk_sleep(sk), &wait);
 
 	down_write(&cmtp_session_sem);
@@ -333,29 +334,26 @@ int cmtp_add_connection(struct cmtp_connadd_req *req, struct socket *sock)
 
 	BT_DBG("");
 
-	if (!l2cap_is_socket(sock))
-		return -EBADFD;
-
 	session = kzalloc(sizeof(struct cmtp_session), GFP_KERNEL);
 	if (!session)
 		return -ENOMEM;
 
 	down_write(&cmtp_session_sem);
 
-	s = __cmtp_get_session(&l2cap_pi(sock->sk)->chan->dst);
+	s = __cmtp_get_session(&bt_sk(sock->sk)->dst);
 	if (s && s->state == BT_CONNECTED) {
 		err = -EEXIST;
 		goto failed;
 	}
 
-	bacpy(&session->bdaddr, &l2cap_pi(sock->sk)->chan->dst);
+	bacpy(&session->bdaddr, &bt_sk(sock->sk)->dst);
 
 	session->mtu = min_t(uint, l2cap_pi(sock->sk)->chan->omtu,
 					l2cap_pi(sock->sk)->chan->imtu);
 
 	BT_DBG("mtu %d", session->mtu);
 
-	sprintf(session->name, "%pMR", &session->bdaddr);
+	sprintf(session->name, "%pMR", &bt_sk(sock->sk)->dst);
 
 	session->sock  = sock;
 	session->state = BT_CONFIG;
@@ -388,7 +386,7 @@ int cmtp_add_connection(struct cmtp_connadd_req *req, struct socket *sock)
 		err = cmtp_attach_device(session);
 		if (err < 0) {
 			atomic_inc(&session->terminate);
-			wake_up_interruptible(sk_sleep(session->sock->sk));
+			wake_up_process(session->task);
 			up_write(&cmtp_session_sem);
 			return err;
 		}
@@ -422,11 +420,7 @@ int cmtp_del_connection(struct cmtp_conndel_req *req)
 
 		/* Stop session thread */
 		atomic_inc(&session->terminate);
-
-		/* Ensure session->terminate is updated */
-		smp_mb__after_atomic();
-
-		wake_up_interruptible(sk_sleep(session->sock->sk));
+		wake_up_process(session->task);
 	} else
 		err = -ENOENT;
 

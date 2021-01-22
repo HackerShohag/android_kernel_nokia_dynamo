@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -60,10 +60,8 @@
 #define ADSP_STATE_READY_TIMEOUT_MS    3000
 
 enum pinctrl_pin_state {
-	STATE_DISABLE = 0,   /* All pins are in sleep state */
-	STATE_AUXPCM_ACTIVE, /* Aux PCM = active, MI2S = sleep */
-	STATE_MI2S_ACTIVE,   /* Aux PCM = sleep, MI2S = active */
-	STATE_ACTIVE         /* All pins are in active state */
+	STATE_DISABLE = 0,
+	STATE_ON = 1
 };
 
 enum mi2s_pcm_mux {
@@ -76,25 +74,21 @@ enum mi2s_pcm_mux {
 struct msm_pinctrl_info {
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *disable;
-	struct pinctrl_state *mi2s_active;
-	struct pinctrl_state *auxpcm_active;
 	struct pinctrl_state *active;
 	enum pinctrl_pin_state curr_state;
+	void __iomem *mux;
 };
 
 struct msm8994_asoc_mach_data {
 	int mclk_gpio;
 	u32 mclk_freq;
 	int us_euro_gpio;
-	struct msm_pinctrl_info pinctrl_info;
-	void __iomem *pri_mux;
-	void __iomem *sec_mux;
+	struct msm_pinctrl_info sec_auxpcm_pinctrl_info;
+	struct msm_pinctrl_info pri_mi2s_pinctrl_info;
 };
 
 static int slim0_rx_sample_rate = SAMPLING_RATE_48KHZ;
-static int slim0_tx_sample_rate = SAMPLING_RATE_48KHZ;
 static int slim0_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
-static int slim0_tx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 static int hdmi_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 static int msm8994_auxpcm_rate = 8000;
 
@@ -117,26 +111,17 @@ static int clk_users;
 static atomic_t prim_auxpcm_rsc_ref;
 static atomic_t sec_auxpcm_rsc_ref;
 
-struct audio_plug_dev {
-	int plug_gpio;
-	int plug_irq;
-	int plug_det;
+struct msm8994_liquid_dock_dev {
+	int dock_plug_gpio;
+	int dock_plug_irq;
+	int dock_plug_det;
 	struct work_struct irq_work;
 	struct switch_dev audio_sdev;
 };
 
-static struct audio_plug_dev *msm8994_liquid_dock_dev;
+static struct msm8994_liquid_dock_dev *msm8994_liquid_dock_dev;
 
-/* Rear panel audio jack which connected to LO1&2 */
-static struct audio_plug_dev *apq8094_db_ext_bp_out_dev;
-/* Front panel audio jack which connected to LO3&4 */
-static struct audio_plug_dev *apq8094_db_ext_fp_in_dev;
-/* Front panel audio jack which connected to Line in (ADC6) */
-static struct audio_plug_dev *apq8094_db_ext_fp_out_dev;
-
-
-static const char *const pin_states[] = {"sleep", "auxpcm-active",
-					 "mi2s-active", "active"};
+static const char *const pin_states[] = {"Disable", "active"};
 static const char *const spk_function[] = {"Off", "On"};
 static const char *const slim0_rx_ch_text[] = {"One", "Two"};
 static const char *const vi_feed_ch_text[] = {"One", "Two"};
@@ -223,127 +208,25 @@ static void param_set_mask(struct snd_pcm_hw_params *p, int n, unsigned bit)
 	}
 }
 
-static irqreturn_t msm8994_audio_plug_device_irq_handler(int irq, void *dev)
+static void msm8994_liquid_docking_irq_work(struct work_struct *work)
 {
-	struct audio_plug_dev *dock_dev = dev;
+	struct msm8994_liquid_dock_dev *dock_dev =
+		container_of(work, struct msm8994_liquid_dock_dev, irq_work);
 
+	dock_dev->dock_plug_det =
+		gpio_get_value(dock_dev->dock_plug_gpio);
+
+	switch_set_state(&dock_dev->audio_sdev, dock_dev->dock_plug_det);
+	/*notify to audio deamon*/
+	sysfs_notify(&dock_dev->audio_sdev.dev->kobj, NULL, "state");
+}
+
+static irqreturn_t msm8994_liquid_docking_irq_handler(int irq, void *dev)
+{
+	struct msm8994_liquid_dock_dev *dock_dev = dev;
 	/* switch speakers should not run in interrupt context */
 	schedule_work(&dock_dev->irq_work);
 	return IRQ_HANDLED;
-}
-
-static int msm8994_audio_plug_device_init
-				(struct audio_plug_dev *audio_plug_dev,
-				 int plug_gpio,
-				 char *node_name,
-				 char *switch_dev_name,
-				 void (*irq_work)(struct work_struct *work))
-{
-	int ret = 0;
-
-	/* awaike by plug in device OR unplug one of them */
-	u32 plug_irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
-
-	audio_plug_dev =
-		kzalloc(sizeof(*audio_plug_dev), GFP_KERNEL);
-	if (!audio_plug_dev) {
-		pr_err("audio_plug_device alloc fail. dev_name= %s\n",
-					node_name);
-		ret = -ENOMEM;
-		goto exit;
-	}
-
-	audio_plug_dev->plug_gpio = plug_gpio;
-
-	ret = gpio_request(audio_plug_dev->plug_gpio,
-					   node_name);
-	if (ret) {
-		pr_err("%s:failed request audio_plug_device device_name = %s err= 0x%x\n",
-			__func__, node_name, ret);
-		ret = -EINVAL;
-		goto release_audio_plug_device;
-	}
-
-	ret = gpio_direction_input(audio_plug_dev->plug_gpio);
-
-	audio_plug_dev->plug_det =
-			gpio_get_value(audio_plug_dev->plug_gpio);
-	audio_plug_dev->plug_irq =
-		gpio_to_irq(audio_plug_dev->plug_gpio);
-
-	ret = request_irq(audio_plug_dev->plug_irq,
-				msm8994_audio_plug_device_irq_handler,
-				plug_irq_flags,
-				node_name,
-				audio_plug_dev);
-	if (ret < 0) {
-		pr_err("%s: Request Irq Failed err = %d\n",
-				__func__, ret);
-		goto fail_gpio;
-	}
-
-	audio_plug_dev->audio_sdev.name = switch_dev_name;
-	if (switch_dev_register(
-		&audio_plug_dev->audio_sdev) < 0) {
-		pr_err("%s: audio plug device register in switch diretory failed\n",
-		__func__);
-		goto fail_switch_dev;
-	}
-
-	switch_set_state(&audio_plug_dev->audio_sdev,
-					!(audio_plug_dev->plug_det));
-
-	/*notify to audio deamon*/
-	sysfs_notify(&audio_plug_dev->audio_sdev.dev->kobj,
-				NULL, "state");
-
-	INIT_WORK(&audio_plug_dev->irq_work,
-			irq_work);
-
-	return 0;
-
-fail_switch_dev:
-	free_irq(audio_plug_dev->plug_irq,
-				audio_plug_dev);
-fail_gpio:
-	gpio_free(audio_plug_dev->plug_gpio);
-release_audio_plug_device:
-	kfree(audio_plug_dev);
-exit:
-	audio_plug_dev = NULL;
-	return ret;
-
-}
-
-static void msm8994_audio_plug_device_remove
-				(struct audio_plug_dev *audio_plug_dev)
-{
-	if (audio_plug_dev != NULL) {
-		switch_dev_unregister(&audio_plug_dev->audio_sdev);
-
-		if (audio_plug_dev->plug_irq)
-			free_irq(audio_plug_dev->plug_irq,
-				 audio_plug_dev);
-
-		if (audio_plug_dev->plug_gpio)
-			gpio_free(audio_plug_dev->plug_gpio);
-
-		kfree(audio_plug_dev);
-		audio_plug_dev = NULL;
-	}
-}
-
-static void msm8994_liquid_docking_irq_work(struct work_struct *work)
-{
-	struct audio_plug_dev *dock_dev =
-		container_of(work, struct audio_plug_dev, irq_work);
-
-	dock_dev->plug_det =
-		gpio_get_value(dock_dev->plug_gpio);
-
-	switch_set_state(&dock_dev->audio_sdev, dock_dev->plug_det);
-	/*notify to audio deamon*/
-	sysfs_notify(&dock_dev->audio_sdev.dev->kobj, NULL, "state");
 }
 
 static int msm8994_liquid_dock_notify_handler(struct notifier_block *this,
@@ -355,51 +238,50 @@ static int msm8994_liquid_dock_notify_handler(struct notifier_block *this,
 	u32 dock_plug_irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
 					IRQF_SHARED;
 	if (dock_event) {
-		ret = gpio_request(msm8994_liquid_dock_dev->plug_gpio,
+		ret = gpio_request(msm8994_liquid_dock_dev->dock_plug_gpio,
 					   "dock-plug-det-irq");
 		if (ret) {
-			pr_err("%s:failed request msm8994_liquid_plug_gpio err = %d\n",
+			pr_err("%s:failed request msm8994_liquid_dock_plug_gpio err = %d\n",
 				__func__, ret);
 			ret = -EINVAL;
 			goto fail_dock_gpio;
 		}
 
-		msm8994_liquid_dock_dev->plug_det =
-			gpio_get_value(msm8994_liquid_dock_dev->plug_gpio);
-		msm8994_liquid_dock_dev->plug_irq =
-			gpio_to_irq(msm8994_liquid_dock_dev->plug_gpio);
+		msm8994_liquid_dock_dev->dock_plug_det =
+			gpio_get_value(msm8994_liquid_dock_dev->dock_plug_gpio);
+		msm8994_liquid_dock_dev->dock_plug_irq =
+			gpio_to_irq(msm8994_liquid_dock_dev->dock_plug_gpio);
 
-		ret = request_irq(msm8994_liquid_dock_dev->plug_irq,
-				  msm8994_audio_plug_device_irq_handler,
+		ret = request_irq(msm8994_liquid_dock_dev->dock_plug_irq,
+				  msm8994_liquid_docking_irq_handler,
 				  dock_plug_irq_flags,
 				  "liquid_dock_plug_irq",
 				  msm8994_liquid_dock_dev);
 		if (ret < 0) {
 			pr_err("%s: Request Irq Failed err = %d\n",
 				__func__, ret);
-			goto fail_gpio_irq;
+			goto fail_dock_gpio;
 		}
 
 		switch_set_state(&msm8994_liquid_dock_dev->audio_sdev,
-				msm8994_liquid_dock_dev->plug_det);
+					msm8994_liquid_dock_dev->dock_plug_det);
 		/*notify to audio deamon*/
 		sysfs_notify(&msm8994_liquid_dock_dev->audio_sdev.dev->kobj,
-				NULL, "state");
+					NULL, "state");
+
 	} else {
-		if (msm8994_liquid_dock_dev->plug_irq)
-			free_irq(msm8994_liquid_dock_dev->plug_irq,
+		if (msm8994_liquid_dock_dev->dock_plug_irq)
+			free_irq(msm8994_liquid_dock_dev->dock_plug_irq,
 				 msm8994_liquid_dock_dev);
 
-		if (msm8994_liquid_dock_dev->plug_gpio)
-			gpio_free(msm8994_liquid_dock_dev->plug_gpio);
+		if (msm8994_liquid_dock_dev->dock_plug_gpio)
+			gpio_free(msm8994_liquid_dock_dev->dock_plug_gpio);
 	}
 	return NOTIFY_OK;
 
-fail_gpio_irq:
-	if (msm8994_liquid_dock_dev->plug_gpio)
-		gpio_free(msm8994_liquid_dock_dev->plug_gpio);
-
 fail_dock_gpio:
+	gpio_free(msm8994_liquid_dock_dev->dock_plug_gpio);
+
 	return NOTIFY_DONE;
 }
 
@@ -411,12 +293,12 @@ static struct notifier_block msm8994_liquid_docking_notifier = {
 static int msm8994_liquid_init_docking(void)
 {
 	int ret = 0;
-	int plug_gpio = 0;
+	int dock_plug_gpio = 0;
 
-	plug_gpio = of_get_named_gpio(spdev->dev.of_node,
+	dock_plug_gpio = of_get_named_gpio(spdev->dev.of_node,
 					   "qcom,dock-plug-det-irq", 0);
 
-	if (plug_gpio >= 0) {
+	if (dock_plug_gpio >= 0) {
 		msm8994_liquid_dock_dev =
 		 kzalloc(sizeof(*msm8994_liquid_dock_dev), GFP_KERNEL);
 		if (!msm8994_liquid_dock_dev) {
@@ -425,7 +307,7 @@ static int msm8994_liquid_init_docking(void)
 			goto exit;
 		}
 
-		msm8994_liquid_dock_dev->plug_gpio = plug_gpio;
+		msm8994_liquid_dock_dev->dock_plug_gpio = dock_plug_gpio;
 		msm8994_liquid_dock_dev->audio_sdev.name =
 						QC_AUDIO_EXTERNAL_SPK_1_EVENT;
 
@@ -448,80 +330,11 @@ exit:
 	return ret;
 }
 
-static void apq8094_db_device_irq_work(struct work_struct *work)
-{
-	struct audio_plug_dev *plug_dev =
-		container_of(work, struct audio_plug_dev, irq_work);
-
-	plug_dev->plug_det =
-		gpio_get_value(plug_dev->plug_gpio);
-
-	switch_set_state(&plug_dev->audio_sdev, !(plug_dev->plug_det));
-
-	/*notify to audio deamon*/
-	sysfs_notify(&plug_dev->audio_sdev.dev->kobj, NULL, "state");
-}
-
-static int apq8094_db_device_init(void)
-{
-	int ret = 0;
-	int plug_gpio = 0;
-
-
-	plug_gpio = of_get_named_gpio(spdev->dev.of_node,
-					   "qcom,ext-spk-rear-panel-irq", 0);
-	if (plug_gpio >= 0) {
-		ret = msm8994_audio_plug_device_init(apq8094_db_ext_bp_out_dev,
-						plug_gpio,
-						"qcom,ext-spk-rear-panel-irq",
-						QC_AUDIO_EXTERNAL_SPK_2_EVENT,
-						&apq8094_db_device_irq_work);
-		if (ret != 0) {
-			pr_err("%s: external audio device init failed = %s\n",
-				__func__,
-				apq8094_db_ext_bp_out_dev->audio_sdev.name);
-			return ret;
-		}
-	}
-
-	plug_gpio = of_get_named_gpio(spdev->dev.of_node,
-					   "qcom,ext-spk-front-panel-irq", 0);
-	if (plug_gpio >= 0) {
-		ret = msm8994_audio_plug_device_init(apq8094_db_ext_fp_out_dev,
-						plug_gpio,
-						"qcom,ext-spk-front-panel-irq",
-						QC_AUDIO_EXTERNAL_SPK_1_EVENT,
-						&apq8094_db_device_irq_work);
-		if (ret != 0) {
-			pr_err("%s: external audio device init failed = %s\n",
-				__func__,
-				apq8094_db_ext_fp_out_dev->audio_sdev.name);
-			return ret;
-		}
-	}
-
-	plug_gpio = of_get_named_gpio(spdev->dev.of_node,
-					   "qcom,ext-mic-front-panel-irq", 0);
-	if (plug_gpio >= 0) {
-		ret = msm8994_audio_plug_device_init(apq8094_db_ext_fp_in_dev,
-						plug_gpio,
-						"qcom,ext-mic-front-panel-irq",
-						QC_AUDIO_EXTERNAL_MIC_EVENT,
-						&apq8094_db_device_irq_work);
-		if (ret != 0)
-			pr_err("%s: external audio device init failed = %s\n",
-				__func__,
-				apq8094_db_ext_fp_in_dev->audio_sdev.name);
-	}
-
-	return ret;
-}
-
 static void msm8994_ext_control(struct snd_soc_codec *codec)
 {
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	mutex_lock(&codec->mutex);
+	mutex_lock(&dapm->codec->mutex);
 	pr_debug("%s: msm8994_spk_control = %d", __func__, msm8994_spk_control);
 	if (msm8994_spk_control == MSM8994_SPK_ON) {
 		snd_soc_dapm_enable_pin(dapm, "Lineout_1 amp");
@@ -530,7 +343,7 @@ static void msm8994_ext_control(struct snd_soc_codec *codec)
 		snd_soc_dapm_disable_pin(dapm, "Lineout_1 amp");
 		snd_soc_dapm_disable_pin(dapm, "Lineout_2 amp");
 	}
-	mutex_unlock(&codec->mutex);
+	mutex_unlock(&dapm->codec->mutex);
 	snd_soc_dapm_sync(dapm);
 }
 
@@ -546,7 +359,7 @@ static int msm8994_get_spk(struct snd_kcontrol *kcontrol,
 static int msm8994_set_spk(struct snd_kcontrol *kcontrol,
 		       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
 	pr_debug("%s()\n", __func__);
 	if (msm8994_spk_control == ucontrol->value.integer.value[0])
@@ -590,7 +403,7 @@ static int msm_ext_ultrasound_event(struct snd_soc_dapm_widget *w,
 			     struct snd_kcontrol *k, int event)
 {
 	pr_debug("%s()\n", __func__);
-	if (!strcmp(w->name, "ultrasound amp")) {
+	if (strcmp(w->name, "ultrasound amp")) {
 		if (!gpio_is_valid(ext_us_amp_gpio)) {
 			pr_err("%s: ext_us_amp_gpio isn't configured\n",
 				__func__);
@@ -800,105 +613,6 @@ static int msm_slim_0_rx_ch_put(struct snd_kcontrol *kcontrol,
 	pr_debug("%s: msm_slim_0_rx_ch = %d\n", __func__,
 		 msm_slim_0_rx_ch);
 	return 1;
-}
-
-static int slim0_tx_sample_rate_get(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	int sample_rate_val = 0;
-
-	switch (slim0_tx_sample_rate) {
-	case SAMPLING_RATE_192KHZ:
-		sample_rate_val = 2;
-		break;
-	case SAMPLING_RATE_96KHZ:
-		sample_rate_val = 1;
-		break;
-	case SAMPLING_RATE_48KHZ:
-	default:
-		sample_rate_val = 0;
-		break;
-	}
-
-	ucontrol->value.integer.value[0] = sample_rate_val;
-	pr_debug("%s: slim0_tx_sample_rate = %d\n", __func__,
-				slim0_tx_sample_rate);
-
-	return 0;
-}
-
-static int slim0_tx_sample_rate_put(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	int rc = 0;
-
-	pr_debug("%s: ucontrol value = %ld\n", __func__,
-			ucontrol->value.integer.value[0]);
-
-	switch (ucontrol->value.integer.value[0]) {
-	case 2:
-		slim0_tx_sample_rate = SAMPLING_RATE_192KHZ;
-		break;
-	case 1:
-		slim0_tx_sample_rate = SAMPLING_RATE_96KHZ;
-		break;
-	case 0:
-		slim0_tx_sample_rate = SAMPLING_RATE_48KHZ;
-		break;
-	default:
-		rc = -EINVAL;
-		pr_err("%s: invalid sample rate being passed\n", __func__);
-		break;
-	}
-
-	pr_debug("%s: slim0_tx_sample_rate = %d\n", __func__,
-			slim0_tx_sample_rate);
-
-	return rc;
-}
-
-static int slim0_tx_bit_format_get(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-
-	switch (slim0_tx_bit_format) {
-	case SNDRV_PCM_FORMAT_S24_LE:
-		ucontrol->value.integer.value[0] = 1;
-		break;
-
-	case SNDRV_PCM_FORMAT_S16_LE:
-	default:
-		ucontrol->value.integer.value[0] = 0;
-		break;
-	}
-
-	pr_debug("%s: slim0_tx_bit_format = %d, ucontrol value = %ld\n",
-			 __func__, slim0_tx_bit_format,
-			ucontrol->value.integer.value[0]);
-
-	return 0;
-}
-
-static int slim0_tx_bit_format_put(struct snd_kcontrol *kcontrol,
-				   struct snd_ctl_elem_value *ucontrol)
-{
-	int rc = 0;
-
-	switch (ucontrol->value.integer.value[0]) {
-	case 1:
-		slim0_tx_bit_format = SNDRV_PCM_FORMAT_S24_LE;
-		break;
-	case 0:
-		slim0_tx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
-		break;
-	default:
-		pr_err("%s: invalid value %ld\n", __func__,
-		       ucontrol->value.integer.value[0]);
-		rc = -EINVAL;
-		break;
-	}
-
-	return rc;
 }
 
 static int msm_slim_0_tx_ch_get(struct snd_kcontrol *kcontrol,
@@ -1186,49 +900,20 @@ static int msm8994_hdmi_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
-static int msm_set_pinctrl(struct msm_pinctrl_info *pinctrl_info,
-				enum pinctrl_pin_state new_state)
+static int msm_set_pinctrl(struct msm_pinctrl_info *pinctrl_info)
 {
 	int ret = 0;
-	int curr_state = 0;
 
 	if (pinctrl_info == NULL) {
 		pr_err("%s: pinctrl_info is NULL\n", __func__);
 		ret = -EINVAL;
 		goto err;
 	}
-	curr_state = pinctrl_info->curr_state;
-	pinctrl_info->curr_state |= new_state;
-	pr_debug("%s: curr_state = %s new_state = %s\n", __func__,
-		 pin_states[curr_state], pin_states[pinctrl_info->curr_state]);
-
-	if (curr_state == pinctrl_info->curr_state) {
-		pr_debug("%s: Already in same state\n", __func__);
-		goto err;
-	}
+	pr_debug("%s: curr_state = %s\n", __func__,
+		 pin_states[pinctrl_info->curr_state]);
 
 	switch (pinctrl_info->curr_state) {
-	case STATE_AUXPCM_ACTIVE:
-		ret = pinctrl_select_state(pinctrl_info->pinctrl,
-					   pinctrl_info->auxpcm_active);
-		if (ret) {
-			pr_err("%s: AUXPCM state select failed with %d\n",
-				__func__, ret);
-			ret = -EIO;
-			goto err;
-		}
-		break;
-	case STATE_MI2S_ACTIVE:
-		ret = pinctrl_select_state(pinctrl_info->pinctrl,
-					   pinctrl_info->mi2s_active);
-		if (ret) {
-			pr_err("%s: MI2S state select failed with %d\n",
-				__func__, ret);
-			ret = -EIO;
-			goto err;
-		}
-		break;
-	case STATE_ACTIVE:
+	case STATE_DISABLE:
 		ret = pinctrl_select_state(pinctrl_info->pinctrl,
 					   pinctrl_info->active);
 		if (ret) {
@@ -1237,9 +922,10 @@ static int msm_set_pinctrl(struct msm_pinctrl_info *pinctrl_info,
 			ret = -EIO;
 			goto err;
 		}
+		pinctrl_info->curr_state = STATE_ON;
 		break;
-	case STATE_DISABLE:
-		pr_err("%s: This TLMM pin state not expected\n", __func__);
+	case STATE_ON:
+		pr_err("%s: TLMM pins already set\n", __func__);
 		break;
 	default:
 		pr_err("%s: TLMM pin state is invalid\n", __func__);
@@ -1250,49 +936,20 @@ err:
 	return ret;
 }
 
-static int msm_reset_pinctrl(struct msm_pinctrl_info *pinctrl_info,
-				enum pinctrl_pin_state new_state)
+static int msm_reset_pinctrl(struct msm_pinctrl_info *pinctrl_info)
 {
 	int ret = 0;
-	int curr_state = 0;
 
 	if (pinctrl_info == NULL) {
 		pr_err("%s: pinctrl_info is NULL\n", __func__);
 		ret = -EINVAL;
 		goto err;
 	}
-	curr_state = pinctrl_info->curr_state;
-	pinctrl_info->curr_state &= ~(new_state);
-	pr_debug("%s: curr_state = %s new_state = %s\n", __func__,
-		 pin_states[curr_state], pin_states[pinctrl_info->curr_state]);
-
-	if (curr_state == pinctrl_info->curr_state) {
-		pr_debug("%s: Already in same state\n", __func__);
-		goto err;
-	}
+	pr_debug("%s: curr_state = %s\n", __func__,
+		 pin_states[pinctrl_info->curr_state]);
 
 	switch (pinctrl_info->curr_state) {
-	case STATE_AUXPCM_ACTIVE:
-		ret = pinctrl_select_state(pinctrl_info->pinctrl,
-					   pinctrl_info->auxpcm_active);
-		if (ret) {
-			pr_err("%s: AUXPCM state select failed with %d\n",
-				__func__, ret);
-			ret = -EIO;
-			goto err;
-		}
-		break;
-	case STATE_MI2S_ACTIVE:
-		ret = pinctrl_select_state(pinctrl_info->pinctrl,
-					   pinctrl_info->mi2s_active);
-		if (ret) {
-			pr_err("%s: MI2S state select failed with %d\n",
-				__func__, ret);
-			ret = -EIO;
-			goto err;
-		}
-		break;
-	case STATE_DISABLE:
+	case STATE_ON:
 		ret = pinctrl_select_state(pinctrl_info->pinctrl,
 					   pinctrl_info->disable);
 		if (ret) {
@@ -1301,9 +958,10 @@ static int msm_reset_pinctrl(struct msm_pinctrl_info *pinctrl_info,
 			ret = -EIO;
 			goto err;
 		}
+		pinctrl_info->curr_state = STATE_DISABLE;
 		break;
-	case STATE_ACTIVE:
-		pr_err("%s: This TLMM pin state not expected\n", __func__);
+	case STATE_DISABLE:
+		pr_err("%s: TLMM pins already disabled\n", __func__);
 		break;
 	default:
 		pr_err("%s: TLMM pin state is invalid\n", __func__);
@@ -1313,21 +971,30 @@ err:
 	return ret;
 }
 
-static void msm_release_pinctrl(struct platform_device *pdev)
+static void msm_auxpcm_release_pinctrl(struct platform_device *pdev,
+				enum mi2s_pcm_mux mux)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct msm_pinctrl_info *pinctrl_info = &pdata->pinctrl_info;
+	struct msm_pinctrl_info *pinctrl_info = NULL;
 
+	switch (mux) {
+	case SEC_MI2S_PCM:
+		pinctrl_info = &pdata->sec_auxpcm_pinctrl_info;
+		break;
+	default:
+		pr_err("%s: Not a valid MUX ID: %d\n", __func__, mux);
+		break;
+	}
 	if (pinctrl_info) {
-		iounmap(pdata->pri_mux);
-		iounmap(pdata->sec_mux);
+		iounmap(pinctrl_info->mux);
 		devm_pinctrl_put(pinctrl_info->pinctrl);
 		pinctrl_info->pinctrl = NULL;
 	}
 }
 
-static int msm_get_pinctrl(struct platform_device *pdev)
+static int msm_auxpcm_get_pinctrl(struct platform_device *pdev,
+							enum mi2s_pcm_mux mux)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
@@ -1336,8 +1003,14 @@ static int msm_get_pinctrl(struct platform_device *pdev)
 	struct resource	*muxsel;
 	int ret;
 
-	pinctrl_info = &pdata->pinctrl_info;
-
+	switch (mux) {
+	case SEC_MI2S_PCM:
+		pinctrl_info = &pdata->sec_auxpcm_pinctrl_info;
+		break;
+	default:
+		pr_err("%s: Not a valid MUX ID: %d\n", __func__, mux);
+		break;
+	}
 	if (pinctrl_info == NULL) {
 		pr_err("%s: pinctrl_info is NULL\n", __func__);
 		return -EINVAL;
@@ -1352,31 +1025,21 @@ static int msm_get_pinctrl(struct platform_device *pdev)
 
 	/* get all the states handles from Device Tree */
 	pinctrl_info->disable = pinctrl_lookup_state(pinctrl,
-						"sleep");
+						"auxpcm-sleep");
 	if (IS_ERR(pinctrl_info->disable)) {
 		pr_err("%s: could not get disable pinstate\n", __func__);
 		goto err;
 	}
-	pinctrl_info->auxpcm_active = pinctrl_lookup_state(pinctrl,
-						"auxpcm-active");
-	if (IS_ERR(pinctrl_info->auxpcm_active)) {
-		pr_err("%s: could not get auxpcm pinstate\n", __func__);
-		goto err;
-	}
-	pinctrl_info->mi2s_active = pinctrl_lookup_state(pinctrl,
-						"mi2s-active");
-	if (IS_ERR(pinctrl_info->mi2s_active)) {
-		pr_err("%s: could not get mi2s pinstate\n", __func__);
-		goto err;
-	}
+
 	pinctrl_info->active = pinctrl_lookup_state(pinctrl,
-						"active");
+						"auxpcm-active");
 	if (IS_ERR(pinctrl_info->active)) {
 		pr_err("%s: could not get active pinstate\n",
 			__func__);
 		goto err;
 	}
-	/* Reset the TLMM pins to a default state */
+
+	/* Reset the AUXPCM TLMM pins to a default state */
 	ret = pinctrl_select_state(pinctrl_info->pinctrl,
 					pinctrl_info->disable);
 	if (ret != 0) {
@@ -1388,27 +1051,14 @@ static int msm_get_pinctrl(struct platform_device *pdev)
 	pinctrl_info->curr_state = STATE_DISABLE;
 
 	muxsel = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-						"lpaif_pri_mode_muxsel");
-	if (!muxsel) {
-		dev_err(&pdev->dev, "MUX addr invalid for MI2S\n");
-		ret = -ENODEV;
-		goto err;
-	}
-	pdata->pri_mux = ioremap(muxsel->start, resource_size(muxsel));
-	if (pdata->pri_mux == NULL) {
-		pr_err("%s: MI2S muxsel virt addr is null\n", __func__);
-		ret = -EINVAL;
-		goto err;
-	}
-	muxsel = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"lpaif_sec_mode_muxsel");
 	if (!muxsel) {
 		dev_err(&pdev->dev, "MUX addr invalid for AUXPCM\n");
 		ret = -ENODEV;
 		goto err;
 	}
-	pdata->sec_mux = ioremap(muxsel->start, resource_size(muxsel));
-	if (pdata->sec_mux == NULL) {
+	pinctrl_info->mux = ioremap(muxsel->start, resource_size(muxsel));
+	if (pinctrl_info->mux == NULL) {
 		pr_err("%s: AUXPCM muxsel virt addr is null\n", __func__);
 		ret = -EINVAL;
 		goto err;
@@ -1416,8 +1066,6 @@ static int msm_get_pinctrl(struct platform_device *pdev)
 	return 0;
 
 err:
-	if (pdata->pri_mux)
-		iounmap(pdata->pri_mux);
 	devm_pinctrl_put(pinctrl);
 	pinctrl_info->pinctrl = NULL;
 	return -EINVAL;
@@ -1428,7 +1076,7 @@ static int msm_sec_auxpcm_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_card *card = rtd->card;
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct msm_pinctrl_info *pinctrl_info = &pdata->pinctrl_info;
+	struct msm_pinctrl_info *pinctrl_info = &pdata->sec_auxpcm_pinctrl_info;
 	int ret = 0;
 	u32 pcm_sel_reg = 0;
 
@@ -1441,16 +1089,16 @@ static int msm_sec_auxpcm_startup(struct snd_pcm_substream *substream)
 		goto err;
 	}
 	if (atomic_inc_return(&sec_auxpcm_rsc_ref) == 1) {
-		if (pdata->sec_mux != NULL) {
-			pcm_sel_reg = ioread32(pdata->sec_mux);
+		if (pinctrl_info->mux != NULL) {
+			pcm_sel_reg = ioread32(pinctrl_info->mux);
 			iowrite32(I2S_PCM_SEL_PCM << I2S_PCM_SEL_OFFSET,
-				  pdata->sec_mux);
+				  pinctrl_info->mux);
 		} else {
 			pr_err("%s Sec AUXPCM MUX addr is NULL\n", __func__);
 			ret = -EINVAL;
 			goto err;
 		}
-		ret = msm_set_pinctrl(pinctrl_info, STATE_AUXPCM_ACTIVE);
+		ret = msm_set_pinctrl(pinctrl_info);
 		if (ret) {
 			pr_err("%s: AUXPCM TLMM pinctrl set failed with %d\n",
 				__func__, ret);
@@ -1466,14 +1114,14 @@ static void msm_sec_auxpcm_shutdown(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_card *card = rtd->card;
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct msm_pinctrl_info *pinctrl_info = &pdata->pinctrl_info;
+	struct msm_pinctrl_info *pinctrl_info = &pdata->sec_auxpcm_pinctrl_info;
 	int ret = 0;
 
 	pr_debug("%s(): substream = %s, sec_auxpcm_rsc_ref counter = %d\n",
 		__func__, substream->name, atomic_read(&sec_auxpcm_rsc_ref));
 
 	if (atomic_dec_return(&sec_auxpcm_rsc_ref) == 0) {
-		ret = msm_reset_pinctrl(pinctrl_info, STATE_AUXPCM_ACTIVE);
+		ret = msm_reset_pinctrl(pinctrl_info);
 		if (ret)
 			pr_err("%s Reset pinctrl failed with %d\n",
 				__func__, ret);
@@ -1484,6 +1132,107 @@ static struct snd_soc_ops msm_sec_auxpcm_be_ops = {
 	.startup = msm_sec_auxpcm_startup,
 	.shutdown = msm_sec_auxpcm_shutdown,
 };
+
+static void msm_mi2s_release_pinctrl(struct platform_device *pdev,
+				enum mi2s_pcm_mux mux)
+{
+	struct snd_soc_card *card = platform_get_drvdata(pdev);
+	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	struct msm_pinctrl_info *pinctrl_info = &pdata->pri_mi2s_pinctrl_info;
+
+	switch (mux) {
+	case PRI_MI2S_PCM:
+		pinctrl_info = &pdata->pri_mi2s_pinctrl_info;
+		break;
+	default:
+		pr_err("%s: Not a valid MUX ID: %d\n", __func__, mux);
+		break;
+	}
+	if (pinctrl_info) {
+		iounmap(pinctrl_info->mux);
+		devm_pinctrl_put(pinctrl_info->pinctrl);
+		pinctrl_info->pinctrl = NULL;
+	}
+}
+
+static int msm_mi2s_get_pinctrl(struct platform_device *pdev,
+							enum mi2s_pcm_mux mux)
+{
+	struct snd_soc_card *card = platform_get_drvdata(pdev);
+	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	struct msm_pinctrl_info *pinctrl_info = NULL;
+	struct pinctrl *pinctrl;
+	struct resource	*muxsel;
+	int ret;
+
+	switch (mux) {
+	case PRI_MI2S_PCM:
+		pinctrl_info = &pdata->pri_mi2s_pinctrl_info;
+		break;
+	default:
+		pr_err("%s: Not a valid MUX ID: %d\n", __func__, mux);
+		break;
+	}
+	if (pinctrl_info == NULL) {
+		pr_err("%s: pinctrl_info is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	pinctrl = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR_OR_NULL(pinctrl)) {
+		pr_err("%s: Unable to get pinctrl handle\n", __func__);
+		return -EINVAL;
+	}
+	pinctrl_info->pinctrl = pinctrl;
+
+	/* get all the states handles from Device Tree */
+	pinctrl_info->disable = pinctrl_lookup_state(pinctrl,
+						"mi2s-sleep");
+	if (IS_ERR(pinctrl_info->disable)) {
+		pr_err("%s: could not get disable pinstate\n", __func__);
+		goto err;
+	}
+
+	pinctrl_info->active = pinctrl_lookup_state(pinctrl,
+						"mi2s-active");
+	if (IS_ERR(pinctrl_info->active)) {
+		pr_err("%s: could not get mi2s_active pinstate\n",
+			__func__);
+		goto err;
+	}
+
+	/* Reset the MI2S TLMM pins to a default state */
+	ret = pinctrl_select_state(pinctrl_info->pinctrl,
+					pinctrl_info->disable);
+	if (ret != 0) {
+		pr_err("%s: Disable MI2S TLMM pins failed with %d\n",
+			__func__, ret);
+		ret = -EIO;
+		goto err;
+	}
+	pinctrl_info->curr_state = STATE_DISABLE;
+
+	muxsel = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						"lpaif_pri_mode_muxsel");
+	if (!muxsel) {
+		dev_err(&pdev->dev, "MUX addr invalid for MI2S\n");
+		ret = -ENODEV;
+		goto err;
+	}
+	pinctrl_info->mux = ioremap(muxsel->start, resource_size(muxsel));
+	if (pinctrl_info->mux == NULL) {
+		pr_err("%s: MI2S muxsel virt addr is null\n", __func__);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	return 0;
+
+err:
+	devm_pinctrl_put(pinctrl);
+	pinctrl_info->pinctrl = NULL;
+	return -EINVAL;
+}
 
 static int msm_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				struct snd_pcm_hw_params *params)
@@ -1506,7 +1255,7 @@ static int msm8994_mi2s_snd_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_card *card = rtd->card;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct msm_pinctrl_info *pinctrl_info = &pdata->pinctrl_info;
+	struct msm_pinctrl_info *pinctrl_info = &pdata->pri_mi2s_pinctrl_info;
 
 	pr_debug("%s: substream = %s  stream = %d\n", __func__,
 		substream->name, substream->stream);
@@ -1516,13 +1265,13 @@ static int msm8994_mi2s_snd_startup(struct snd_pcm_substream *substream)
 		ret = -EINVAL;
 		goto err;
 	}
-	if (pdata->pri_mux != NULL)
+	if (pinctrl_info->mux != NULL)
 		iowrite32(I2S_PCM_SEL_I2S << I2S_PCM_SEL_OFFSET,
-				pdata->pri_mux);
+				pinctrl_info->mux);
 	else
 		pr_err("%s: MI2S muxsel addr is NULL\n", __func__);
 
-	ret = msm_set_pinctrl(pinctrl_info, STATE_MI2S_ACTIVE);
+	ret = msm_set_pinctrl(pinctrl_info);
 	if (ret) {
 		pr_err("%s: MI2S TLMM pinctrl set failed with %d\n",
 			__func__, ret);
@@ -1548,7 +1297,7 @@ static void msm8994_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_card *card = rtd->card;
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct msm_pinctrl_info *pinctrl_info = &pdata->pinctrl_info;
+	struct msm_pinctrl_info *pinctrl_info = &pdata->pri_mi2s_pinctrl_info;
 	int ret = 0;
 
 	pr_debug("%s: substream = %s  stream = %d\n", __func__,
@@ -1561,7 +1310,7 @@ static void msm8994_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 	if (ret < 0)
 		pr_err("%s: afe lpass clock failed, err:%d\n", __func__, ret);
 
-	ret = msm_reset_pinctrl(pinctrl_info, STATE_MI2S_ACTIVE);
+	ret = msm_reset_pinctrl(pinctrl_info);
 	if (ret)
 		pr_err("%s: Reset pinctrl failed with %d\n",
 			__func__, ret);
@@ -1605,8 +1354,8 @@ static int msm_slim_0_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 
 	pr_debug("%s()\n", __func__);
 	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
-				   slim0_tx_bit_format);
-	rate->min = rate->max = slim0_tx_sample_rate;
+				   slim0_rx_bit_format);
+	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_0_tx_ch;
 
 	return 0;
@@ -1718,15 +1467,11 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 		     msm_btsco_rate_get, msm_btsco_rate_put),
 	SOC_ENUM_EXT("HDMI_RX SampleRate", msm_snd_enum[7],
 			hdmi_rx_sample_rate_get, hdmi_rx_sample_rate_put),
-	SOC_ENUM_EXT("SLIM_0_TX Format", msm_snd_enum[4],
-			slim0_tx_bit_format_get, slim0_tx_bit_format_put),
-	SOC_ENUM_EXT("SLIM_0_TX SampleRate", msm_snd_enum[5],
-			slim0_tx_sample_rate_get, slim0_tx_sample_rate_put),
 };
 
 static bool msm8994_swap_gnd_mic(struct snd_soc_codec *codec)
 {
-	struct snd_soc_card *card = codec->component.card;
+	struct snd_soc_card *card = codec->card;
 	struct msm8994_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
 	int value = gpio_get_value_cansleep(pdata->us_euro_gpio);
 	pr_debug("%s: swap select switch %d to %d\n", __func__, value, !value);
@@ -1904,8 +1649,6 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic6");
 
 	snd_soc_dapm_ignore_suspend(dapm, "MADINPUT");
-	snd_soc_dapm_ignore_suspend(dapm, "MAD_CPE_INPUT");
-	snd_soc_dapm_ignore_suspend(dapm, "AIF4 MAD");
 	snd_soc_dapm_ignore_suspend(dapm, "EAR");
 	snd_soc_dapm_ignore_suspend(dapm, "HEADPHONE");
 	snd_soc_dapm_ignore_suspend(dapm, "LINEOUT1");
@@ -1927,8 +1670,6 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(dapm, "DMIC4");
 	snd_soc_dapm_ignore_suspend(dapm, "DMIC5");
 	snd_soc_dapm_ignore_suspend(dapm, "DMIC6");
-	snd_soc_dapm_ignore_suspend(dapm, "AIF4 VI");
-	snd_soc_dapm_ignore_suspend(dapm, "VIINPUT");
 
 	snd_soc_dapm_sync(dapm);
 
@@ -2177,58 +1918,8 @@ end:
 	return ret;
 }
 
-static int msm_snd_cpe_hw_params(struct snd_pcm_substream *substream,
-				 struct snd_pcm_hw_params *params)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_dai *codec_dai = rtd->codec_dai;
-	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_soc_dai_link *dai_link = rtd->dai_link;
-
-	int ret = 0;
-	u32 tx_ch[SLIM_MAX_TX_PORTS];
-	u32 tx_ch_cnt = 0;
-	u32 user_set_tx_ch = 0;
-
-	if (substream->stream != SNDRV_PCM_STREAM_CAPTURE) {
-		pr_err("%s: Invalid stream type %d\n",
-			__func__, substream->stream);
-		ret = -EINVAL;
-		goto end;
-	}
-
-	pr_debug("%s: %s_tx_dai_id_%d\n", __func__,
-		 codec_dai->name, codec_dai->id);
-	ret = snd_soc_dai_get_channel_map(codec_dai,
-				 &tx_ch_cnt, tx_ch, NULL , NULL);
-	if (ret < 0) {
-		pr_err("%s: failed to get codec chan map\n, err:%d\n",
-			__func__, ret);
-		goto end;
-	}
-
-	user_set_tx_ch = tx_ch_cnt;
-
-	pr_debug("%s: tx_ch_cnt(%d) be_id %d\n",
-		 __func__, tx_ch_cnt, dai_link->be_id);
-
-	ret = snd_soc_dai_set_channel_map(cpu_dai,
-					  user_set_tx_ch, tx_ch, 0 , 0);
-	if (ret < 0) {
-		pr_err("%s: failed to set cpu chan map, err:%d\n",
-			__func__, ret);
-		goto end;
-	}
-end:
-	return ret;
-}
-
 static struct snd_soc_ops msm8994_be_ops = {
 	.hw_params = msm_snd_hw_params,
-};
-
-static struct snd_soc_ops msm8994_cpe_ops = {
-	.hw_params = msm_snd_cpe_hw_params,
 };
 
 static int msm8994_slimbus_2_hw_params(struct snd_pcm_substream *substream,
@@ -2297,7 +1988,6 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 		.cpu_dai_name	= "MultiMedia1",
 		.platform_name  = "msm-pcm-dsp.0",
 		.dynamic = 1,
-		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			SND_SOC_DPCM_TRIGGER_POST},
 		.codec_dai_name = "snd-soc-dummy-dai",
@@ -2512,7 +2202,6 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia5",
 		.platform_name = "msm-pcm-dsp.1",
 		.dynamic = 1,
-		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE,
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
@@ -2928,7 +2617,7 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 	{
 		.name = "CPE Listen service",
 		.stream_name = "CPE Listen Audio Service",
-		.cpu_dai_name = "msm-dai-slim",
+		.cpu_dai_name = "CPE_LSM_NOHOST",
 		.platform_name = "msm-cpe-lsm",
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			    SND_SOC_DPCM_TRIGGER_POST },
@@ -2937,7 +2626,6 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		.codec_dai_name = "tomtom_mad1",
 		.codec_name = "tomtom_codec",
-		.ops = &msm8994_cpe_ops,
 	},
 	/* End of FE DAI LINK */
 	/* Backend FM DAI Links */
@@ -3075,7 +2763,6 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 		.codec_name = "tomtom_codec",
 		.codec_dai_name = "tomtom_tx1",
 		.no_pcm = 1,
-		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_0_TX,
 		.be_hw_params_fixup = msm_slim_0_tx_be_hw_params_fixup,
 		.ignore_suspend = 1,
@@ -3189,7 +2876,6 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_5_TX,
 		.be_hw_params_fixup = msm_slim_5_tx_be_hw_params_fixup,
-		.ignore_suspend = 1,
 		.ops = &msm8994_be_ops,
 	},
 	/* Incall Music BACK END DAI Link */
@@ -3538,27 +3224,31 @@ static int msm8994_asoc_machine_probe(struct platform_device *pdev)
 		dev_info(&pdev->dev, "msm8994_prepare_us_euro failed (%d)\n",
 			ret);
 
-	/* Parse pinctrl info from devicetree */
-	ret = msm_get_pinctrl(pdev);
+	/* Parse pinctrl info for AUXPCM, if defined */
+	ret = msm_auxpcm_get_pinctrl(pdev, SEC_MI2S_PCM);
 	if (!ret) {
-		pr_debug("%s: pinctrl parsing successful\n", __func__);
+		pr_debug("%s: Auxpcm pinctrl parsing successful\n", __func__);
 	} else {
 		dev_info(&pdev->dev,
-			"%s: Parsing pinctrl failed with %d. Cannot use Ports\n",
+			"%s: Parsing pinctrl failed with %d. Cannot use Auxpcm Ports\n",
 			__func__, ret);
 		goto err;
 	}
-	ret = apq8094_db_device_init();
-	if (ret) {
-		pr_err("%s: DB8094 init ext devices stat IRQ failed (%d)\n",
-				__func__, ret);
+
+	/* Parse pinctrl info for MI2S ports, if defined */
+	ret = msm_mi2s_get_pinctrl(pdev, PRI_MI2S_PCM);
+	if (!ret) {
+		pr_debug("%s: MI2S pinctrl parsing successful\n", __func__);
+	} else {
+		dev_info(&pdev->dev,
+			"%s: Parsing pinctrl failed with %d. Cannot use MI2S Ports\n",
+			__func__, ret);
 		goto err1;
 	}
-
 	return 0;
 
 err1:
-	msm_release_pinctrl(pdev);
+	msm_auxpcm_release_pinctrl(pdev, SEC_MI2S_PCM);
 err:
 	if (pdata->mclk_gpio > 0) {
 		dev_dbg(&pdev->dev, "%s free gpio %d\n",
@@ -3587,13 +3277,21 @@ static int msm8994_asoc_machine_remove(struct platform_device *pdev)
 	gpio_free(pdata->mclk_gpio);
 	gpio_free(pdata->us_euro_gpio);
 
-	msm8994_audio_plug_device_remove(msm8994_liquid_dock_dev);
+	if (msm8994_liquid_dock_dev != NULL) {
+		switch_dev_unregister(&msm8994_liquid_dock_dev->audio_sdev);
 
-	msm8994_audio_plug_device_remove(apq8094_db_ext_bp_out_dev);
-	msm8994_audio_plug_device_remove(apq8094_db_ext_fp_in_dev);
-	msm8994_audio_plug_device_remove(apq8094_db_ext_fp_out_dev);
+		if (msm8994_liquid_dock_dev->dock_plug_irq)
+			free_irq(msm8994_liquid_dock_dev->dock_plug_irq,
+				 msm8994_liquid_dock_dev);
 
-	msm_release_pinctrl(pdev);
+		if (msm8994_liquid_dock_dev->dock_plug_gpio)
+			gpio_free(msm8994_liquid_dock_dev->dock_plug_gpio);
+
+		kfree(msm8994_liquid_dock_dev);
+		msm8994_liquid_dock_dev = NULL;
+	}
+	msm_auxpcm_release_pinctrl(pdev, SEC_MI2S_PCM);
+	msm_mi2s_release_pinctrl(pdev, PRI_MI2S_PCM);
 	snd_soc_unregister_card(card);
 
 	return 0;

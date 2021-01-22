@@ -59,7 +59,7 @@ ENTRY(cpu_v7_switch_mm)
 	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
 	isb
 #endif
-	bx	lr
+	mov	pc, lr
 ENDPROC(cpu_v7_switch_mm)
 
 /*
@@ -106,7 +106,7 @@ ENTRY(cpu_v7_set_pte_ext)
 	ALT_SMP(W(nop))
 	ALT_UP (mcr	p15, 0, r0, c7, c10, 1)		@ flush_pte
 #endif
-	bx	lr
+	mov	pc, lr
 ENDPROC(cpu_v7_set_pte_ext)
 
 	/*
@@ -138,20 +138,26 @@ ENDPROC(cpu_v7_set_pte_ext)
 	 *   NOS = PRRR[24+n] = 1	- not outer shareable
 	 */
 .equ	PRRR,	0xff0a81a8
+#ifdef CONFIG_ARCH_MSM_SCORPIONMP
+.equ	NMRR,	0x40e080e0
+#else
 .equ	NMRR,	0x40e040e0
+#endif
 
 	/*
 	 * Macro for setting up the TTBRx and TTBCR registers.
 	 * - \ttb0 and \ttb1 updated with the corresponding flags.
 	 */
-	.macro	v7_ttb_setup, zero, ttbr0l, ttbr0h, ttbr1, tmp
+	.macro	v7_ttb_setup, zero, ttbr0, ttbr1, tmp
 	mcr	p15, 0, \zero, c2, c0, 2	@ TTB control register
-	ALT_SMP(orr	\ttbr0l, \ttbr0l, #TTB_FLAGS_SMP)
-	ALT_UP(orr	\ttbr0l, \ttbr0l, #TTB_FLAGS_UP)
+	ALT_SMP(orr	\ttbr0, \ttbr0, #TTB_FLAGS_SMP)
+	ALT_UP(orr	\ttbr0, \ttbr0, #TTB_FLAGS_UP)
 	ALT_SMP(orr	\ttbr1, \ttbr1, #TTB_FLAGS_SMP)
 	ALT_UP(orr	\ttbr1, \ttbr1, #TTB_FLAGS_UP)
 	mcr	p15, 0, \ttbr1, c2, c0, 1	@ load TTB1
 	.endm
+
+	__CPUINIT
 
 	/*   AT
 	 *  TFR   EV X F   I D LR    S
@@ -163,3 +169,5 @@ ENDPROC(cpu_v7_set_pte_ext)
 	.type	v7_crval, #object
 v7_crval:
 	crval	clear=0x2120c302, mmuset=0x10c03c7d, ucset=0x00c01c7c
+
+	.previous

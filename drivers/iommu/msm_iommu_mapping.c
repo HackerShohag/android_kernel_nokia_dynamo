@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,6 +14,7 @@
 #include <linux/dma-buf.h>
 #include <linux/export.h>
 #include <linux/iommu.h>
+#include <linux/ion.h>
 #include <linux/kernel.h>
 #include <linux/kref.h>
 #include <linux/scatterlist.h>
@@ -164,7 +165,6 @@ static struct msm_iommu_map *msm_iommu_lookup(
 	struct rb_node *parent = NULL;
 	struct msm_iommu_map *entry;
 	uint64_t key = domain_no;
-
 	key = key << 32 | partition_no;
 
 	while (*p) {
@@ -195,7 +195,7 @@ static int msm_iommu_map_iommu(struct msm_iommu_meta *meta,
 	unsigned long extra, size;
 	struct sg_table *table;
 	int prot = IOMMU_WRITE | IOMMU_READ;
-	size_t map_ret;
+
 
 	size = meta->size;
 	data->mapped_size = iova_length;
@@ -224,22 +224,18 @@ static int msm_iommu_map_iommu(struct msm_iommu_meta *meta,
 		goto out1;
 	}
 
-	map_ret = iommu_map_sg(domain, data->iova_addr,
+	ret = iommu_map_range(domain, data->iova_addr,
 			      table->sgl,
-			      table->nents, prot);
-	if (map_ret != size) {
+			      size, prot);
+	if (ret) {
 		pr_err("%s: could not map %lx in domain %p\n",
 			__func__, data->iova_addr, domain);
-		ret = -EINVAL;
 		goto out1;
-	} else {
-		ret = 0;
 	}
 
 	if (extra) {
 		unsigned long extra_iova_addr = data->iova_addr + size;
 		unsigned long phys_addr = sg_phys(table->sgl);
-
 		ret = msm_iommu_map_extra(domain, extra_iova_addr, phys_addr,
 					extra, SZ_4K, prot);
 		if (ret)
@@ -281,6 +277,8 @@ static void msm_iommu_heap_unmap_iommu(struct msm_iommu_map *data)
 	WARN_ON(ret < 0);
 	msm_free_iova_address(data->iova_addr, domain_num, partition_num,
 				data->mapped_size);
+
+	return;
 }
 
 
@@ -391,7 +389,6 @@ static int __msm_map_iommu_common(
 
 	if (!msm_use_iommu()) {
 		unsigned long pa = sg_dma_address(table->sgl);
-
 		if (pa == 0)
 			pa = sg_phys(table->sgl);
 		*iova = pa;
@@ -431,12 +428,6 @@ static int __msm_map_iommu_common(
 
 	if (!iommu_meta) {
 		iommu_meta = msm_iommu_meta_create(dma_buf, table, size);
-
-		if (IS_ERR(iommu_meta)) {
-			mutex_unlock(&msm_iommu_map_mutex);
-			ret = PTR_ERR(iommu_meta);
-			goto out;
-		}
 	} else {
 		/*
 		 * Drop the dma_buf reference here. We took the reference
@@ -488,8 +479,8 @@ static int __msm_map_iommu_common(
 out_unlock:
 	mutex_unlock(&iommu_meta->lock);
 out:
-	if (!IS_ERR(iommu_meta))
-		msm_iommu_meta_put(iommu_meta);
+
+	msm_iommu_meta_put(iommu_meta);
 	return ret;
 
 }
@@ -637,5 +628,9 @@ void ion_unmap_iommu(struct ion_client *client, struct ion_handle *handle,
 	table = ion_sg_table(client, handle);
 
 	__msm_unmap_iommu_common(table, domain_num, partition_num);
+
+	return;
 }
 EXPORT_SYMBOL(ion_unmap_iommu);
+
+

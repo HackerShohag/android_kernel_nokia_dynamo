@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -93,6 +93,7 @@
 #define ONFI_PARAM_PAGE_LENGTH 0x0100
 #define ONFI_PARAMETER_PAGE_SIGNATURE 0x49464E4F
 #define FLASH_READ_ONFI_SIGNATURE_ADDRESS 0x20
+#define FLASH_READ_ONFI_PARAMETERS_COMMAND 0xEC
 #define FLASH_READ_ONFI_PARAMETERS_ADDRESS 0x00
 #define FLASH_READ_DEVICE_ID_ADDRESS 0x00
 
@@ -101,8 +102,7 @@
 
 /* QPIC NANDc (NAND Controller) Register Set */
 #define MSM_NAND_REG(info, off)		    (info->nand_phys + off)
-#define MSM_NAND_REG_ADJUSTED(info, off)    (info->nand_phys_adjusted + off)
-#define MSM_NAND_QPIC_VERSION(info)	    MSM_NAND_REG_ADJUSTED(info, 0x20100)
+#define MSM_NAND_QPIC_VERSION(info)	    MSM_NAND_REG(info, 0x20100)
 #define MSM_NAND_FLASH_CMD(info)	    MSM_NAND_REG(info, 0x30000)
 #define MSM_NAND_ADDR0(info)                MSM_NAND_REG(info, 0x30004)
 #define MSM_NAND_ADDR1(info)                MSM_NAND_REG(info, 0x30008)
@@ -134,10 +134,6 @@
 #define WR_RD_BSY_GAP		17
 #define ENABLE_BCH_ECC		27
 
-#define BYTES_512		512
-#define BYTES_516		516
-#define BYTES_517		517
-
 #define MSM_NAND_DEV0_ECC_CFG(info)	    MSM_NAND_REG(info, 0x30028)
 #define ECC_CFG_ECC_DISABLE	0
 #define ECC_SW_RESET	1
@@ -148,8 +144,6 @@
 
 #define MSM_NAND_READ_ID(info)              MSM_NAND_REG(info, 0x30040)
 #define MSM_NAND_READ_STATUS(info)          MSM_NAND_REG(info, 0x30044)
-#define MSM_NAND_READ_ID2(info)              MSM_NAND_REG(info, 0x30048)
-#define EXTENDED_FETCH_ID           BIT(19)
 #define MSM_NAND_DEV_CMD1(info)             MSM_NAND_REG(info, 0x300A4)
 #define MSM_NAND_DEV_CMD_VLD(info)          MSM_NAND_REG(info, 0x300AC)
 #define MSM_NAND_EBI2_ECC_BUF_CFG(info)     MSM_NAND_REG(info, 0x300F0)
@@ -173,7 +167,7 @@
 
 #define MSM_NAND_CTRL(info)		    MSM_NAND_REG(info, 0x30F00)
 #define BAM_MODE_EN	0
-#define MSM_NAND_VERSION(info)         MSM_NAND_REG_ADJUSTED(info, 0x30F08)
+#define MSM_NAND_VERSION(info)         MSM_NAND_REG(info, 0x30F08)
 #define MSM_NAND_READ_LOCATION_0(info)      MSM_NAND_REG(info, 0x30F20)
 #define MSM_NAND_READ_LOCATION_1(info)      MSM_NAND_REG(info, 0x30F24)
 
@@ -181,7 +175,6 @@
 #define MSM_NAND_CMD_PAGE_READ          0x32
 #define MSM_NAND_CMD_PAGE_READ_ECC      0x33
 #define MSM_NAND_CMD_PAGE_READ_ALL      0x34
-#define MSM_NAND_CMD_PAGE_READ_ONFI     0x35
 #define MSM_NAND_CMD_PRG_PAGE           0x36
 #define MSM_NAND_CMD_PRG_PAGE_ECC       0x37
 #define MSM_NAND_CMD_PRG_PAGE_ALL       0x39
@@ -200,6 +193,18 @@
 #define INT_UNLCK	(INT | SPS_IOVEC_FLAG_UNLOCK)
 #define CMD_INT_UNLCK	(CMD | INT_UNLCK)
 #define NWD		SPS_IOVEC_FLAG_NWD
+
+#define msm_nand_sps_get_iovec(pipe, indx, cnt, ret, label, iovec)	\
+	do {								\
+		do {							\
+			ret = sps_get_iovec((pipe), (iovec));		\
+		} while (((iovec)->addr == 0x0) && ((iovec)->size == 0x0));\
+		if (ret) {						\
+			pr_err("sps_get_iovec failed for pipe %d (ret: %d)\n",\
+					indx, ret);			\
+			goto label;					\
+		}							\
+	} while (--(cnt))
 
 /* Structure that defines a NAND SPS command element */
 struct msm_nand_sps_cmd {
@@ -250,7 +255,6 @@ struct msm_nand_chip {
 	uint32_t cfg0, cfg1, cfg0_raw, cfg1_raw;
 	uint32_t ecc_buf_cfg;
 	uint32_t ecc_bch_cfg;
-	uint32_t ecc_cfg_raw;
 };
 
 /* Structure that defines an SPS end point for a NANDc BAM pipe. */
@@ -285,7 +289,6 @@ struct flash_identification {
 	uint32_t blksize;
 	uint32_t oobsize;
 	uint32_t ecc_correctability;
-	uint32_t ecc_capability; /* Set based on the ECC capability selected. */
 };
 
 struct msm_nand_clk_data {
@@ -303,7 +306,6 @@ struct msm_nand_info {
 	struct msm_nand_sps_info sps;
 	unsigned long bam_phys;
 	unsigned long nand_phys;
-	unsigned long nand_phys_adjusted;
 	void __iomem *bam_base;
 	int bam_irq;
 	/*
@@ -320,7 +322,6 @@ struct msm_nand_info {
 	struct mutex lock;
 	struct flash_identification flash_dev;
 	struct msm_nand_clk_data clk_data;
-	u64 dma_mask;
 };
 
 /* Structure that defines an ONFI parameter page (512B) */

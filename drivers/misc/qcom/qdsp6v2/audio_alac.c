@@ -16,21 +16,12 @@
 #include <linux/compat.h>
 #include "audio_utils_aio.h"
 
-static struct miscdevice audio_alac_misc;
-static struct ws_mgr audio_alac_ws_mgr;
-
+#ifdef CONFIG_DEBUG_FS
 static const struct file_operations audio_alac_debug_fops = {
 	.read = audio_aio_debug_read,
 	.open = audio_aio_debug_open,
 };
-
-static struct dentry *config_debugfs_create_file(const char *name, void *data)
-{
-	return debugfs_create_file(name, S_IFREG | S_IRUGO,
-				NULL, (void *)data, &audio_alac_debug_fops);
-}
-
-static int alac_channel_map(u8 *channel_mapping, uint32_t channels);
+#endif
 
 static long audio_ioctl_shared(struct file *file, unsigned int cmd,
 						void *arg)
@@ -42,25 +33,14 @@ static long audio_ioctl_shared(struct file *file, unsigned int cmd,
 	case AUDIO_START: {
 		struct asm_alac_cfg alac_cfg;
 		struct msm_audio_alac_config *alac_config;
-		u8 channel_mapping[PCM_FORMAT_MAX_NUM_CHANNEL];
-
-		memset(channel_mapping, 0, PCM_FORMAT_MAX_NUM_CHANNEL);
-
-		if (alac_channel_map(channel_mapping,
-			audio->pcm_cfg.channel_count)) {
-			pr_err("%s: setting channel map failed %d\n",
-					__func__, audio->pcm_cfg.channel_count);
-		}
 
 		pr_debug("%s[%pK]: AUDIO_START session_id[%d]\n", __func__,
 						audio, audio->ac->session);
 		if (audio->feedback == NON_TUNNEL_MODE) {
 			/* Configure PCM output block */
-			rc = q6asm_enc_cfg_blk_pcm_v2(audio->ac,
+			rc = q6asm_enc_cfg_blk_pcm(audio->ac,
 					audio->pcm_cfg.sample_rate,
-					audio->pcm_cfg.channel_count,
-					16, /*bits per sample*/
-					false, false, channel_mapping);
+					audio->pcm_cfg.channel_count);
 			if (rc < 0) {
 				pr_err("pcm output block config failed\n");
 				break;
@@ -149,6 +129,7 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	default: {
+		pr_debug("%s[%p]: Calling utils ioctl\n", __func__, audio);
 		rc = audio->codec_ioctl(file, cmd, arg);
 		if (rc)
 			pr_err("Failed in utils_ioctl: %d\n", rc);
@@ -251,6 +232,7 @@ static long audio_compat_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 	default: {
+		pr_debug("%s[%p]: Calling utils ioctl\n", __func__, audio);
 		rc = audio->codec_compat_ioctl(file, cmd, arg);
 		if (rc)
 			pr_err("Failed in utils_ioctl: %d\n", rc);
@@ -272,13 +254,13 @@ static int audio_open(struct inode *inode, struct file *file)
 	char name[sizeof "msm_alac_" + 5];
 	audio = kzalloc(sizeof(struct q6audio_aio), GFP_KERNEL);
 
-	if (!audio) {
+	if (audio == NULL) {
 		pr_err("Could not allocate memory for alac decode driver\n");
 		return -ENOMEM;
 	}
 	audio->codec_cfg = kzalloc(sizeof(struct msm_audio_alac_config),
 					GFP_KERNEL);
-	if (!audio->codec_cfg) {
+	if (audio->codec_cfg == NULL) {
 		pr_err("%s:Could not allocate memory for alac config\n",
 			__func__);
 		kfree(audio);
@@ -286,11 +268,6 @@ static int audio_open(struct inode *inode, struct file *file)
 	}
 
 	audio->pcm_cfg.buffer_size = PCM_BUFSZ_MIN;
-	audio->miscdevice = &audio_alac_misc;
-	audio->wakelock_voted = false;
-	audio->audio_ws_mgr = &audio_alac_ws_mgr;
-
-	init_waitqueue_head(&audio->event_wait);
 
 	audio->ac = q6asm_audio_client_alloc((app_cb) q6_audio_cb,
 					     (void *)audio);
@@ -337,7 +314,9 @@ static int audio_open(struct inode *inode, struct file *file)
 	}
 
 	snprintf(name, sizeof(name), "msm_alac_%04x", audio->ac->session);
-	audio->dentry = config_debugfs_create_file(name, (void *)audio);
+	audio->dentry = debugfs_create_file(name, S_IFREG | S_IRUGO,
+					    NULL, (void *)audio,
+					    &audio_alac_debug_fops);
 
 	if (IS_ERR_OR_NULL(audio->dentry))
 		pr_debug("debugfs_create_file failed\n");
@@ -352,64 +331,6 @@ fail:
 	return rc;
 }
 
-static int alac_channel_map(u8 *channel_mapping, uint32_t channels)
-{
-	u8 *lchannel_mapping;
-
-	lchannel_mapping = channel_mapping;
-	pr_debug("%s:  channels passed: %d\n", __func__, channels);
-	if (channels == 1)  {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-	} else if (channels == 2) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-	} else if (channels == 3) {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-		lchannel_mapping[1] = PCM_CHANNEL_FL;
-		lchannel_mapping[2] = PCM_CHANNEL_FR;
-	} else if (channels == 4) {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-		lchannel_mapping[1] = PCM_CHANNEL_FL;
-		lchannel_mapping[2] = PCM_CHANNEL_FR;
-		lchannel_mapping[3] = PCM_CHANNEL_CS;
-	} else if (channels == 5) {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-		lchannel_mapping[1] = PCM_CHANNEL_FL;
-		lchannel_mapping[2] = PCM_CHANNEL_FR;
-		lchannel_mapping[3] = PCM_CHANNEL_LS;
-		lchannel_mapping[4] = PCM_CHANNEL_RS;
-	} else if (channels == 6) {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-		lchannel_mapping[1] = PCM_CHANNEL_FL;
-		lchannel_mapping[2] = PCM_CHANNEL_FR;
-		lchannel_mapping[3] = PCM_CHANNEL_LS;
-		lchannel_mapping[4] = PCM_CHANNEL_RS;
-		lchannel_mapping[5] = PCM_CHANNEL_LFE;
-	} else if (channels == 7) {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-		lchannel_mapping[1] = PCM_CHANNEL_FL;
-		lchannel_mapping[2] = PCM_CHANNEL_FR;
-		lchannel_mapping[3] = PCM_CHANNEL_LS;
-		lchannel_mapping[4] = PCM_CHANNEL_RS;
-		lchannel_mapping[5] = PCM_CHANNEL_CS;
-		lchannel_mapping[6] = PCM_CHANNEL_LFE;
-	} else if (channels == 8) {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-		lchannel_mapping[1] = PCM_CHANNEL_FLC;
-		lchannel_mapping[2] = PCM_CHANNEL_FRC;
-		lchannel_mapping[3] = PCM_CHANNEL_FL;
-		lchannel_mapping[4] = PCM_CHANNEL_FR;
-		lchannel_mapping[5] = PCM_CHANNEL_LS;
-		lchannel_mapping[6] = PCM_CHANNEL_RS;
-		lchannel_mapping[7] = PCM_CHANNEL_LFE;
-	} else {
-		pr_err("%s: ERROR.unsupported num_ch = %u\n",
-				__func__, channels);
-		return -EINVAL;
-	}
-	return 0;
-}
-
 static const struct file_operations audio_alac_fops = {
 	.owner = THIS_MODULE,
 	.open = audio_open,
@@ -419,7 +340,7 @@ static const struct file_operations audio_alac_fops = {
 	.compat_ioctl = audio_compat_ioctl
 };
 
-static struct miscdevice audio_alac_misc = {
+struct miscdevice audio_alac_misc = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name = "msm_alac",
 	.fops = &audio_alac_fops,
@@ -427,14 +348,7 @@ static struct miscdevice audio_alac_misc = {
 
 static int __init audio_alac_init(void)
 {
-	int ret = misc_register(&audio_alac_misc);
-
-	if (ret == 0)
-		device_init_wakeup(audio_alac_misc.this_device, true);
-	audio_alac_ws_mgr.ref_cnt = 0;
-	mutex_init(&audio_alac_ws_mgr.ws_lock);
-
-	return ret;
+	return misc_register(&audio_alac_misc);
 }
 
 device_initcall(audio_alac_init);

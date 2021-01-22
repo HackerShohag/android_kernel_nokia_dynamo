@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -287,3 +287,4 @@ fips_drbg_final(struct fips_drbg_ctx_s *ctx)
 	memset(ctx->prev_hw_drbg_block, 0, Q_HW_DRBG_BLOCK_BYTES);
 	ctx->magic = 0;
 }
+

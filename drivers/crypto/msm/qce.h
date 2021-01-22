@@ -1,6 +1,6 @@
 /* Qualcomm Crypto Engine driver API
  *
- * Copyright (c) 2010-2015, 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -125,7 +125,6 @@ struct ce_hw_support {
 	bool clk_mgmt_sus_res;
 	unsigned int ce_device;
 	unsigned int ce_hw_instance;
-	unsigned int max_request;
 };
 
 /* Sha operation parameters */
@@ -157,8 +156,8 @@ struct qce_req {
 	unsigned int authsize;		/* authentication key kength */
 	unsigned char  nonce[MAX_NONCE];/* nonce for ccm mode */
 	unsigned char *assoc;		/* Ptr to formatted associated data */
-	size_t assoclen;		/* Formatted associated data length  */
-	size_t trail_assoclen;		/* trail associated data length  */
+	unsigned int assoclen;		/* Formatted associated data length  */
+	struct scatterlist *asg;	/* Formatted associated data sg  */
 	unsigned char *enckey;		/* cipher key  */
 	unsigned int encklen;		/* cipher key length */
 	unsigned char *iv;		/* initialization vector */
@@ -184,7 +183,5 @@ int qce_hw_support(void *handle, struct ce_hw_support *support);
 int qce_process_sha_req(void *handle, struct qce_sha_req *s_req);
 int qce_enable_clk(void *handle);
 int qce_disable_clk(void *handle);
-void qce_get_driver_stats(void *handle);
-void qce_clear_driver_stats(void *handle);
 
 #endif /* __CRYPTO_MSM_QCE_H */

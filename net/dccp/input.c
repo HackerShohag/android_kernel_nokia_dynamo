@@ -28,7 +28,7 @@ static void dccp_enqueue_skb(struct sock *sk, struct sk_buff *skb)
 	__skb_pull(skb, dccp_hdr(skb)->dccph_doff * 4);
 	__skb_queue_tail(&sk->sk_receive_queue, skb);
 	skb_set_owner_r(skb, sk);
-	sk->sk_data_ready(sk);
+	sk->sk_data_ready(sk, 0);
 }
 
 static void dccp_fin(struct sock *sk, struct sk_buff *skb)
@@ -606,8 +606,7 @@ int dccp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			if (inet_csk(sk)->icsk_af_ops->conn_request(sk,
 								    skb) < 0)
 				return 1;
-			consume_skb(skb);
-			return 0;
+			goto discard;
 		}
 		if (dh->dccph_type == DCCP_PKT_RESET)
 			goto discard;

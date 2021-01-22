@@ -136,16 +136,6 @@ struct lp55xx_engine {
 };
 
 /*
- * struct lp55xx_engine
- * @mode       : Engine mode
- * @led_mux    : Mux bits for LED selection. Only used in LP5523
- */
-struct lp55xx_engine {
-	enum lp55xx_engine_mode mode;
-	u16 led_mux;
-};
-
-/*
  * struct lp55xx_chip
  * @cl         : I2C communication for access registers
  * @pdata      : Platform specific data
@@ -210,10 +200,6 @@ extern void lp55xx_unregister_leds(struct lp55xx_led *led,
 /* common device attributes functions */
 extern int lp55xx_register_sysfs(struct lp55xx_chip *chip);
 extern void lp55xx_unregister_sysfs(struct lp55xx_chip *chip);
-
-/* common device tree population function */
-extern int lp55xx_of_populate_pdata(struct device *dev,
-				    struct device_node *np);
 
 /* common device tree population function */
 extern int lp55xx_of_populate_pdata(struct device *dev,

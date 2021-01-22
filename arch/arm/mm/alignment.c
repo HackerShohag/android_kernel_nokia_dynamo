@@ -25,10 +25,8 @@
 #include <asm/cp15.h>
 #include <asm/system_info.h>
 #include <asm/unaligned.h>
-#include <asm/opcodes.h>
 
 #include "fault.h"
-#include "mm.h"
 
 /*
  * 32-bit misaligned trap handler (c) 1998 San Mehat (CCC) -July 1998
@@ -41,7 +39,6 @@
  * This code is not portable to processors with late data abort handling.
  */
 #define CODING_BITS(i)	(i & 0x0e000000)
-#define COND_BITS(i)	(i & 0xf0000000)
 
 #define LDST_I_BIT(i)	(i & (1 << 26))		/* Immediate constant	*/
 #define LDST_P_BIT(i)	(i & (1 << 24))		/* Preindex		*/
@@ -77,14 +74,12 @@
 
 static unsigned long ai_user;
 static unsigned long ai_sys;
-static void *ai_sys_last_pc;
 static unsigned long ai_skipped;
 static unsigned long ai_half;
 static unsigned long ai_word;
 static unsigned long ai_dword;
 static unsigned long ai_multi;
 static int ai_usermode;
-static unsigned long cr_no_alignment;
 
 core_param(alignment, ai_usermode, int, 0600);
 
@@ -95,7 +90,7 @@ core_param(alignment, ai_usermode, int, 0600);
 /* Return true if and only if the ARMv6 unaligned access model is in use. */
 static bool cpu_is_v6_unaligned(void)
 {
-	return cpu_architecture() >= CPU_ARCH_ARMv6 && get_cr() & CR_U;
+	return cpu_architecture() >= CPU_ARCH_ARMv6 && (cr_alignment & CR_U);
 }
 
 static int safe_usermode(int new_usermode, bool warn)
@@ -132,7 +127,7 @@ static const char *usermode_action[] = {
 static int alignment_proc_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "User:\t\t%lu\n", ai_user);
-	seq_printf(m, "System:\t\t%lu (%pF)\n", ai_sys, ai_sys_last_pc);
+	seq_printf(m, "System:\t\t%lu\n", ai_sys);
 	seq_printf(m, "Skipped:\t%lu\n", ai_skipped);
 	seq_printf(m, "Half:\t\t%lu\n", ai_half);
 	seq_printf(m, "Word:\t\t%lu\n", ai_word);
@@ -365,21 +360,15 @@ do_alignment_ldrhstrh(unsigned long addr, unsigned long instr, struct pt_regs *r
  user:
 	if (LDST_L_BIT(instr)) {
 		unsigned long val;
-		unsigned int __ua_flags = uaccess_save_and_enable();
-
 		get16t_unaligned_check(val, addr);
-		uaccess_restore(__ua_flags);
 
 		/* signed half-word? */
 		if (instr & 0x40)
 			val = (signed long)((signed short) val);
 
 		regs->uregs[rd] = val;
-	} else {
-		unsigned int __ua_flags = uaccess_save_and_enable();
+	} else
 		put16t_unaligned_check(regs->uregs[rd], addr);
-		uaccess_restore(__ua_flags);
-	}
 
 	return TYPE_LDST;
 
@@ -426,21 +415,14 @@ do_alignment_ldrdstrd(unsigned long addr, unsigned long instr,
 
  user:
 	if (load) {
-		unsigned long val, val2;
-		unsigned int __ua_flags = uaccess_save_and_enable();
-
+		unsigned long val;
 		get32t_unaligned_check(val, addr);
-		get32t_unaligned_check(val2, addr + 4);
-
-		uaccess_restore(__ua_flags);
-
 		regs->uregs[rd] = val;
-		regs->uregs[rd2] = val2;
+		get32t_unaligned_check(val, addr + 4);
+		regs->uregs[rd2] = val;
 	} else {
-		unsigned int __ua_flags = uaccess_save_and_enable();
 		put32t_unaligned_check(regs->uregs[rd], addr);
 		put32t_unaligned_check(regs->uregs[rd2], addr + 4);
-		uaccess_restore(__ua_flags);
 	}
 
 	return TYPE_LDST;
@@ -471,15 +453,10 @@ do_alignment_ldrstr(unsigned long addr, unsigned long instr, struct pt_regs *reg
  trans:
 	if (LDST_L_BIT(instr)) {
 		unsigned int val;
-		unsigned int __ua_flags = uaccess_save_and_enable();
 		get32t_unaligned_check(val, addr);
-		uaccess_restore(__ua_flags);
 		regs->uregs[rd] = val;
-	} else {
-		unsigned int __ua_flags = uaccess_save_and_enable();
+	} else
 		put32t_unaligned_check(regs->uregs[rd], addr);
-		uaccess_restore(__ua_flags);
-	}
 	return TYPE_LDST;
 
  fault:
@@ -549,7 +526,6 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr, struct pt_regs *reg
 #endif
 
 	if (user_mode(regs)) {
-		unsigned int __ua_flags = uaccess_save_and_enable();
 		for (regbits = REGMASK_BITS(instr), rd = 0; regbits;
 		     regbits >>= 1, rd += 1)
 			if (regbits & 1) {
@@ -561,7 +537,6 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr, struct pt_regs *reg
 					put32t_unaligned_check(regs->uregs[rd], eaddr);
 				eaddr += 4;
 			}
-		uaccess_restore(__ua_flags);
 	} else {
 		for (regbits = REGMASK_BITS(instr), rd = 0; regbits;
 		     regbits >>= 1, rd += 1)
@@ -767,6 +742,36 @@ do_alignment_t32_to_handler(unsigned long *pinstr, struct pt_regs *regs,
 	return NULL;
 }
 
+#ifdef CONFIG_FORCE_INSTRUCTION_ALIGNMENT
+static int
+do_ialignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
+{
+	/*
+	 * Branching to an address in ARM state which is not word aligned,
+	 * where this is defined to be UNPREDICTABLE,
+	 * can cause one of the following two behaviours:
+	 *     1. The unaligned location is forced to be aligned.
+	 *     2. Using the unaligned address generates a Prefetch Abort on
+	 *        the first instruction using the unaligned PC value.
+	 */
+	int isize = 4;
+
+	if (user_mode(regs) && !thumb_mode(regs)) {
+		ai_sys += 1;
+
+		/*
+		* Force align the instruction in software to be following
+		* a single behaviour for the unpredicatable cases.
+		*/
+		instruction_pointer(regs) &= ~(isize + (-1UL));
+		return 0;
+	}
+
+	ai_skipped += 1;
+	return 1;
+}
+#endif
+
 static int
 do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
@@ -787,25 +792,21 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	if (thumb_mode(regs)) {
 		u16 *ptr = (u16 *)(instrptr & ~1);
 		fault = probe_kernel_address(ptr, tinstr);
-		tinstr = __mem_to_opcode_thumb16(tinstr);
 		if (!fault) {
 			if (cpu_architecture() >= CPU_ARCH_ARMv7 &&
 			    IS_T32(tinstr)) {
 				/* Thumb-2 32-bit */
 				u16 tinst2 = 0;
 				fault = probe_kernel_address(ptr + 1, tinst2);
-				tinst2 = __mem_to_opcode_thumb16(tinst2);
-				instr = __opcode_thumb32_compose(tinstr, tinst2);
+				instr = (tinstr << 16) | tinst2;
 				thumb2_32b = 1;
 			} else {
 				isize = 2;
 				instr = thumb2arm(tinstr);
 			}
 		}
-	} else {
+	} else
 		fault = probe_kernel_address(instrptr, instr);
-		instr = __mem_to_opcode_arm(instr);
-	}
 
 	if (fault) {
 		type = TYPE_FAULT;
@@ -816,7 +817,6 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 		goto user;
 
 	ai_sys += 1;
-	ai_sys_last_pc = (void *)instruction_pointer(regs);
 
  fixup:
 
@@ -842,8 +842,6 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 		break;
 
 	case 0x04000000:	/* ldr or str immediate */
-		if (COND_BITS(instr) == 0xf0000000) /* NEON VLDn, VSTn */
-			goto bad;
 		offset.un = OFFSET_BITS(instr);
 		handler = do_alignment_ldrstr;
 		break;
@@ -976,13 +974,6 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	return 0;
 }
 
-static int __init noalign_setup(char *__unused)
-{
-	set_cr(__clear_cr(CR_A));
-	return 1;
-}
-__setup("noalign", noalign_setup);
-
 /*
  * This needs to be done after sysctl_init, otherwise sys/ will be
  * overwritten.  Actually, this shouldn't be in sys/ at all since
@@ -1000,15 +991,22 @@ static int __init alignment_init(void)
 		return -ENOMEM;
 #endif
 
+#ifdef CONFIG_CPU_CP15
 	if (cpu_is_v6_unaligned()) {
-		set_cr(__clear_cr(CR_A));
+		cr_alignment &= ~CR_A;
+		cr_no_alignment &= ~CR_A;
+		set_cr(cr_alignment);
 		ai_usermode = safe_usermode(ai_usermode, false);
 	}
-
-	cr_no_alignment = get_cr() & ~CR_A;
+#endif
 
 	hook_fault_code(FAULT_CODE_ALIGNMENT, do_alignment, SIGBUS, BUS_ADRALN,
 			"alignment exception");
+
+#ifdef CONFIG_FORCE_INSTRUCTION_ALIGNMENT
+	hook_ifault_code(FAULT_CODE_ALIGNMENT, do_ialignment, SIGBUS,
+			BUS_ADRALN, "alignment exception");
+#endif
 
 	/*
 	 * ARMv6K and ARMv7 use fault status 3 (0b00011) as Access Flag section

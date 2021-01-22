@@ -46,13 +46,6 @@ enum lp8501_pwr_sel {
 	LP8501_ALL_VOUT,	/* D1~9 are connected to VOUT */
 };
 
-enum lp8501_pwr_sel {
-	LP8501_ALL_VDD,		/* D1~9 are connected to VDD */
-	LP8501_6VDD_3VOUT,	/* D1~6 with VDD, D7~9 with VOUT */
-	LP8501_3VDD_6VOUT,	/* D1~6 with VOUT, D7~9 with VDD */
-	LP8501_ALL_VOUT,	/* D1~9 are connected to VOUT */
-};
-
 /*
  * struct lp55xx_platform_data
  * @led_config        : Configurable led class device
@@ -78,7 +71,12 @@ struct lp55xx_platform_data {
 
 	/* optional enable GPIO */
 	int enable_gpio;
-
+       /* add for disable sbl gpio start */
+	int gpio_r;
+	int gpio_g;
+	int gpio_b;
+	int gpio_pwm;
+        /* add for disable sbl gpio end */
 	/* Predefined pattern data */
 	struct lp55xx_predef_pattern *patterns;
 	unsigned int num_patterns;
@@ -88,3 +86,5 @@ struct lp55xx_platform_data {
 };
 
 #endif /* _LEDS_LP55XX_H */
+
+

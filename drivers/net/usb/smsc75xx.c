@@ -13,12 +13,14 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  *
  *****************************************************************************/
 
 #include <linux/module.h>
 #include <linux/kmod.h>
+#include <linux/init.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
@@ -1061,7 +1063,7 @@ static int smsc75xx_reset(struct usbnet *dev)
 		return ret;
 	}
 
-	netif_dbg(dev, ifup, dev->net, "MAC Address: %pKM\n",
+	netif_dbg(dev, ifup, dev->net, "MAC Address: %pM\n",
 		  dev->net->dev_addr);
 
 	ret = smsc75xx_read_reg(dev, HW_CFG, &buf);

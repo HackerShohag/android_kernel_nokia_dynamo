@@ -6,7 +6,7 @@
 #include <linux/io.h>
 #include <linux/file.h>
 #include <linux/uaccess.h>
-//#include <mach/msm_iomap.h>
+#include <mach/msm_iomap.h>
 #include "fih_pon.h"
 #include "fih_rere.h"
 #include "fih_ramtable.h"

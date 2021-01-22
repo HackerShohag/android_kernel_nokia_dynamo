@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014, 2017, Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,6 +32,7 @@
 #include <linux/poll.h>
 
 #define DRIVER_DESC	"USB host ks bridge driver"
+#define DRIVER_VERSION	"1.0"
 
 enum bus_id {
 	BUS_HSIC,
@@ -46,8 +47,6 @@ static enum bus_id str_to_busid(const char *name)
 	if (!strncasecmp("msm_hsic_host", name, BUSNAME_LEN))
 		return BUS_HSIC;
 	if (!strncasecmp("msm_ehci_host.0", name, BUSNAME_LEN))
-		return BUS_USB;
-	if (!strncasecmp("xhci-hcd.0.auto", name, BUSNAME_LEN))
 		return BUS_USB;
 
 	return BUS_UNDEF;
@@ -115,7 +114,6 @@ struct ks_bridge {
 	rwlock_t	dbg_lock;
 	char     (dbgbuf[DBG_MAX_MSG])[DBG_MSG_LEN];   /* buffer */
 };
-
 struct ks_bridge *__ksb[NO_BRIDGE_INSTANCES];
 
 /* by default debugging is enabled */
@@ -149,11 +147,14 @@ struct data_pkt *ksb_alloc_data_pkt(size_t count, gfp_t flags, void *ctxt)
 	struct data_pkt *pkt;
 
 	pkt = kzalloc(sizeof(struct data_pkt), flags);
-	if (!pkt)
+	if (!pkt) {
+		pr_err("failed to allocate data packet\n");
 		return ERR_PTR(-ENOMEM);
+	}
 
 	pkt->buf = kmalloc(count, flags);
 	if (!pkt->buf) {
+		pr_err("failed to allocate data buffer\n");
 		kfree(pkt);
 		return ERR_PTR(-ENOMEM);
 	}
@@ -246,7 +247,7 @@ read_start:
 
 	dbg_log_event(ksb, "KS_READ", copied, 0);
 
-	dev_dbg(ksb->device, "count:%zu space:%zu copied:%zu", count,
+	dev_dbg(ksb->device, "count:%d space:%d copied:%d", count,
 			space, copied);
 
 	return copied;
@@ -458,10 +459,6 @@ static struct ksb_dev_info ksb_efs_usb_dev = {
 static const struct usb_device_id ksb_usb_ids[] = {
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9008, 0),
 	.driver_info = (unsigned long)&ksb_fboot_dev, },
-	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9025, 0), },
-	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9091, 0), },
-	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x901D, 0), },
-	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x900E, 0), },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9048, 2),
 	.driver_info = (unsigned long)&ksb_efs_hsic_dev, },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x904C, 2),
@@ -664,7 +661,7 @@ static void ksb_start_rx_work(struct work_struct *w)
 static int
 ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 {
-	__u8				ifc_num, ifc_count, ksb_port_num;
+	__u8				ifc_num;
 	struct usb_host_interface	*ifc_desc;
 	struct usb_endpoint_descriptor	*ep_desc;
 	int				i;
@@ -674,13 +671,11 @@ ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 	struct ksb_dev_info		*mdev, *fbdev;
 	struct usb_device		*udev;
 	unsigned int			bus_id;
-	int				ret;
-	bool				free_mdev = false;
+	int ret;
 
 	ifc_num = ifc->cur_altsetting->desc.bInterfaceNumber;
 
 	udev = interface_to_usbdev(ifc);
-	ifc_count = udev->actconfig->desc.bNumInterfaces;
 	fbdev = mdev = (struct ksb_dev_info *)id->driver_info;
 
 	bus_id = str_to_busid(udev->bus->bus_name);
@@ -691,32 +686,6 @@ ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 	}
 
 	switch (id->idProduct) {
-	case 0x900E:
-	case 0x9025:
-	case 0x9091:
-	case 0x901D:
-		/* 1-1 mapping between ksb and udev port which starts with 1 */
-		ksb_port_num = udev->portnum - 1;
-		dev_dbg(&udev->dev, "ifc_count: %u, port_num:%u\n", ifc_count,
-				ksb_port_num);
-		if (ifc_count > 1)
-			return -ENODEV;
-		if (ksb_port_num >= NO_BRIDGE_INSTANCES) {
-			dev_err(&udev->dev, "port-num:%u invalid. Try first\n",
-					ksb_port_num);
-			ksb_port_num = 0;
-		}
-		ksb = __ksb[ksb_port_num];
-		if (ksb->ifc) {
-			dev_err(&udev->dev, "port already in use\n");
-			return -ENODEV;
-		}
-		mdev = kzalloc(sizeof(struct ksb_dev_info), GFP_KERNEL);
-		if (!mdev)
-			return -ENOMEM;
-		free_mdev = true;
-		mdev->name = ksb->name;
-		break;
 	case 0x9008:
 		ksb = __ksb[bus_id];
 		mdev = &fbdev[bus_id];
@@ -775,8 +744,6 @@ ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 			"could not find bulk in and bulk out endpoints");
 		usb_put_dev(ksb->udev);
 		ksb->ifc = NULL;
-		if (free_mdev)
-			kfree(mdev);
 		return -ENODEV;
 	}
 
@@ -830,18 +797,18 @@ ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 		goto fail_class_create;
 	}
 
-	ksb->device = device_create(ksb->class, &udev->dev, ksb->cdev_start_no,
+	ksb->device = device_create(ksb->class, NULL, ksb->cdev_start_no,
 				NULL, mdev->name);
 	if (IS_ERR(ksb->device)) {
 		dbg_log_event(ksb, "devcrfailed", PTR_ERR(ksb->device), 0);
 		goto fail_device_create;
 	}
 
-	if (device_can_wakeup(&ksb->udev->dev))
+	if (device_can_wakeup(&ksb->udev->dev)) {
 		ifc->needs_remote_wakeup = 1;
+		usb_enable_autosuspend(ksb->udev);
+	}
 
-	if (free_mdev)
-		kfree(mdev);
 	dev_dbg(&udev->dev, "usb dev connected");
 
 	return 0;
@@ -853,9 +820,6 @@ fail_class_create:
 fail_chrdev_region:
 	usb_set_intfdata(ifc, NULL);
 	clear_bit(USB_DEV_CONNECTED, &ksb->flags);
-
-	if (free_mdev)
-		kfree(mdev);
 
 	return -ENODEV;
 
@@ -949,6 +913,8 @@ static void ksb_usb_disconnect(struct usb_interface *ifc)
 	usb_put_dev(ksb->udev);
 	ksb->ifc = NULL;
 	usb_set_intfdata(ifc, NULL);
+
+	return;
 }
 
 static struct usb_driver ksb_usb_driver = {
@@ -962,7 +928,7 @@ static struct usb_driver ksb_usb_driver = {
 	.supports_autosuspend = 1,
 };
 
-static int ksb_debug_show(struct seq_file *s, void *unused)
+static ssize_t ksb_debug_show(struct seq_file *s, void *unused)
 {
 	unsigned long		flags;
 	struct ks_bridge	*ksb = s->private;
@@ -993,9 +959,7 @@ static const struct file_operations dbg_fops = {
 	.llseek = seq_lseek,
 	.release = single_release,
 };
-
 static struct dentry *dbg_dir;
-
 static int __init ksb_init(void)
 {
 	struct ks_bridge *ksb;
@@ -1016,7 +980,7 @@ static int __init ksb_init(void)
 		}
 		__ksb[i] = ksb;
 
-		ksb->name = kasprintf(GFP_KERNEL, "ks_usb_bridge.%i", i);
+		ksb->name = kasprintf(GFP_KERNEL, "ks_bridge:%i", i + 1);
 		if (!ksb->name) {
 			pr_info("unable to allocate name");
 			kfree(ksb);
@@ -1101,4 +1065,5 @@ module_init(ksb_init);
 module_exit(ksb_exit);
 
 MODULE_DESCRIPTION(DRIVER_DESC);
+MODULE_VERSION(DRIVER_VERSION);
 MODULE_LICENSE("GPL v2");

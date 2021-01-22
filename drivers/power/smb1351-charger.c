@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -529,7 +529,6 @@ struct smb1351_charger {
 	int			slave_fcc_ma_before_esr;
 	int			workaround_flags;
 
-	struct mutex		parallel_config_lock;
 	int			parallel_pin_polarity_setting;
 	bool			is_slave;
 	bool			use_external_fg;
@@ -1537,6 +1536,13 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 			| STAT_OUTPUT_CTRL_BIT, 0);
 	if (rc) {
 		pr_err("Set STAT pin polarity failed, r=%d\n", rc);
+		return rc;
+	}
+
+	rc = smb1351_masked_write(chip, VARIOUS_FUNC_2_REG,
+			STAT_PIN_CONFIG_BIT, STAT_PIN_CONFIG_BIT);
+	if (rc) {
+		pr_err("Set STAT pin config failed, r=%d\n", rc);
 		return rc;
 	}
 
@@ -2563,12 +2569,10 @@ static int smb1351_parallel_set_property(struct power_supply *psy,
 		}
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
-		mutex_lock(&chip->parallel_config_lock);
 		rc = smb1351_parallel_set_chg_present(chip, val->intval);
 		if (rc)
 			pr_err("Set charger %spresent failed\n",
 					val->intval ? "" : "un-");
-		mutex_unlock(&chip->parallel_config_lock);
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 		if (chip->parallel_charger_present) {
@@ -4590,7 +4594,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 			chip->adc_param.low_temp = chip->batt_cool_decidegc;
 			chip->adc_param.high_temp = chip->batt_warm_decidegc;
 		}
-		chip->adc_param.timer_interval = ADC_MEAS1_INTERVAL_500MS;
+		chip->adc_param.timer_interval = ADC_MEAS2_INTERVAL_1S;
 		chip->adc_param.state_request = ADC_TM_WARM_COOL_THR_ENABLE;
 		chip->adc_param.btm_ctx = chip;
 		chip->adc_param.threshold_notification =
@@ -4666,10 +4670,9 @@ static int smb1351_parallel_slave_probe(struct i2c_client *client,
 				EN_BY_PIN_HIGH_ENABLE : EN_BY_PIN_LOW_ENABLE;
 
 	i2c_set_clientdata(client, chip);
-	mutex_init(&chip->parallel_config_lock);
 
-	chip->parallel_psy.name		= "parallel";
-	chip->parallel_psy.type		= POWER_SUPPLY_TYPE_PARALLEL;
+	chip->parallel_psy.name		= "usb-parallel";
+	chip->parallel_psy.type		= POWER_SUPPLY_TYPE_USB_PARALLEL;
 	chip->parallel_psy.get_property	= smb1351_parallel_get_property;
 	chip->parallel_psy.set_property	= smb1351_parallel_set_property;
 	chip->parallel_psy.properties	= smb1351_parallel_properties;
@@ -4699,7 +4702,6 @@ fail_register_psy:
 	wakeup_source_trash(&chip->smb1351_ws.source);
 	mutex_destroy(&chip->irq_complete);
 	mutex_destroy(&chip->fcc_lock);
-	mutex_destroy(&chip->parallel_config_lock);
 	return rc;
 }
 
@@ -4722,10 +4724,8 @@ static int smb1351_charger_remove(struct i2c_client *client)
 	wakeup_source_trash(&chip->smb1351_ws.source);
 	mutex_destroy(&chip->irq_complete);
 	mutex_destroy(&chip->fcc_lock);
-	if (is_parallel_slave(client)) {
-		mutex_destroy(&chip->parallel_config_lock);
+	if (is_parallel_slave(client))
 		mutex_destroy(&chip->parallel.lock);
-	}
 	debugfs_remove_recursive(chip->debug_root);
 	return 0;
 }

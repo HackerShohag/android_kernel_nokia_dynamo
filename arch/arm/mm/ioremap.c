@@ -112,6 +112,14 @@ int ioremap_page(unsigned long virt, unsigned long phys,
 }
 EXPORT_SYMBOL(ioremap_page);
 
+int ioremap_pages(unsigned long virt, unsigned long phys, unsigned long size,
+		 const struct mem_type *mtype)
+{
+	return ioremap_page_range(virt, virt + size, phys,
+				  __pgprot(mtype->prot_pte));
+}
+EXPORT_SYMBOL(ioremap_pages);
+
 void __check_vmalloc_seq(struct mm_struct *mm)
 {
 	unsigned int seq;
@@ -264,7 +272,6 @@ void __iomem * __arm_ioremap_pfn_caller(unsigned long pfn,
 	unsigned long addr;
 	struct vm_struct *area;
 	phys_addr_t paddr = __pfn_to_phys(pfn);
-	pgprot_t prot;
 
 #ifndef CONFIG_ARM_LPAE
 	/*
@@ -309,12 +316,6 @@ void __iomem * __arm_ioremap_pfn_caller(unsigned long pfn,
  	addr = (unsigned long)area->addr;
 	area->phys_addr = paddr;
 
-	prot = __pgprot(type->prot_pte);
-#ifdef CONFIG_ARCH_MSM8953_SOC_SETTINGS
-	if (paddr >= MSM8953_TLMM_START_ADDR &&
-	    paddr <= MSM8953_TLMM_END_ADDR)
-		prot = pgprot_stronglyordered(type->prot_pte);
-#endif
 #if !defined(CONFIG_SMP) && !defined(CONFIG_ARM_LPAE)
 	if (DOMAIN_IO == 0 &&
 	    (((cpu_architecture() >= CPU_ARCH_ARMv6) && (get_cr() & CR_XP)) ||
@@ -327,7 +328,8 @@ void __iomem * __arm_ioremap_pfn_caller(unsigned long pfn,
 		err = remap_area_sections(addr, pfn, size, type);
 	} else
 #endif
-		err = ioremap_page_range(addr, addr + size, paddr, prot);
+		err = ioremap_page_range(addr, addr + size, paddr,
+					 __pgprot(type->prot_pte));
 
 	if (err) {
  		vunmap((void *)addr);
@@ -342,7 +344,7 @@ void __iomem *__arm_ioremap_caller(phys_addr_t phys_addr, size_t size,
 	unsigned int mtype, void *caller)
 {
 	phys_addr_t last_addr;
- 	unsigned long offset = phys_addr & ~PAGE_MASK;
+	unsigned long offset = phys_addr & ~PAGE_MASK;
  	unsigned long pfn = __phys_to_pfn(phys_addr);
 
  	/*
@@ -399,9 +401,9 @@ __arm_ioremap_exec(phys_addr_t phys_addr, size_t size, bool cached)
 	unsigned int mtype;
 
 	if (cached)
-		mtype = MT_MEMORY_RWX;
+		mtype = MT_MEMORY;
 	else
-		mtype = MT_MEMORY_RWX_NONCACHED;
+		mtype = MT_MEMORY_NONCACHED;
 
 	return __arm_ioremap_caller(phys_addr, size, mtype,
 			__builtin_return_address(0));
@@ -445,13 +447,6 @@ void __arm_iounmap(volatile void __iomem *io_addr)
 EXPORT_SYMBOL(__arm_iounmap);
 
 #ifdef CONFIG_PCI
-static int pci_ioremap_mem_type = MT_DEVICE;
-
-void pci_ioremap_set_mem_type(int mem_type)
-{
-	pci_ioremap_mem_type = mem_type;
-}
-
 int pci_ioremap_io(unsigned int offset, phys_addr_t phys_addr)
 {
 	BUG_ON(offset + SZ_64K > IO_SPACE_LIMIT);
@@ -459,7 +454,7 @@ int pci_ioremap_io(unsigned int offset, phys_addr_t phys_addr)
 	return ioremap_page_range(PCI_IO_VIRT_BASE + offset,
 				  PCI_IO_VIRT_BASE + offset + SZ_64K,
 				  phys_addr,
-				  __pgprot(get_mem_type(pci_ioremap_mem_type)->prot_pte));
+				  __pgprot(get_mem_type(MT_DEVICE)->prot_pte));
 }
 EXPORT_SYMBOL_GPL(pci_ioremap_io);
 #endif

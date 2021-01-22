@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,6 +17,7 @@
 #include <linux/mfd/core.h>
 #include <linux/mfd/wcd9xxx/core-resource.h>
 #include <linux/mfd/wcd9xxx/wcd9xxx_registers.h>
+#include <linux/mfd/wcd9xxx/wcd9310_registers.h>
 #include <linux/delay.h>
 #include <linux/irqdomain.h>
 #include <linux/interrupt.h>
@@ -25,8 +26,6 @@
 #include <linux/slab.h>
 #include <linux/ratelimit.h>
 #include <soc/qcom/pm.h>
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
 
 #define BYTE_BIT_MASK(nr)		(1UL << ((nr) % BITS_PER_BYTE))
 #define BIT_BYTE(nr)			((nr) / BITS_PER_BYTE)
@@ -288,7 +287,7 @@ static irqreturn_t wcd9xxx_irq_thread(int irq, void *data)
 	static DEFINE_RATELIMIT_STATE(ratelimit, 5 * HZ, 1);
 	struct wcd9xxx_core_resource *wcd9xxx_res = data;
 	int num_irq_regs = wcd9xxx_res->num_irq_regs;
-	u8 status[4], status1[4] = {0}, unmask_status[4] = {0};
+	u8 status[num_irq_regs], status1[num_irq_regs];
 
 	if (unlikely(wcd9xxx_lock_sleep(wcd9xxx_res) == false)) {
 		dev_err(wcd9xxx_res->dev, "Failed to hold suspend\n");
@@ -311,23 +310,6 @@ static irqreturn_t wcd9xxx_irq_thread(int irq, void *data)
 				"Failed to read interrupt status: %d\n", ret);
 		goto err_disable_irq;
 	}
-	/*
-	 * If status is 0 return without clearing.
-	 * status contains: HW status - masked interrupts
-	 * status1 contains: unhandled interrupts - masked interrupts
-	 * unmasked_status contains: unhandled interrupts
-	 */
-	if (unlikely(!memcmp(status, status1, sizeof(status)))) {
-		pr_debug("%s: status is 0\n", __func__);
-		wcd9xxx_unlock_sleep(wcd9xxx_res);
-		return IRQ_HANDLED;
-	}
-
-	/*
-	 * Copy status to unmask_status before masking, otherwise SW may miss
-	 * to clear masked interrupt in corner case.
-	 */
-	memcpy(unmask_status, status, sizeof(unmask_status));
 
 	/* Apply masking */
 	for (i = 0; i < num_irq_regs; i++)
@@ -350,8 +332,6 @@ static irqreturn_t wcd9xxx_irq_thread(int irq, void *data)
 			BYTE_BIT_MASK(irqdata.intr_num)) {
 			wcd9xxx_irq_dispatch(wcd9xxx_res, &irqdata);
 			status1[BIT_BYTE(irqdata.intr_num)] &=
-					~BYTE_BIT_MASK(irqdata.intr_num);
-			unmask_status[BIT_BYTE(irqdata.intr_num)] &=
 					~BYTE_BIT_MASK(irqdata.intr_num);
 		}
 	}
@@ -407,21 +387,18 @@ void wcd9xxx_free_irq(struct wcd9xxx_core_resource *wcd9xxx_res,
 
 void wcd9xxx_enable_irq(struct wcd9xxx_core_resource *wcd9xxx_res, int irq)
 {
-	if (wcd9xxx_res->irq)
-		enable_irq(phyirq_to_virq(wcd9xxx_res, irq));
+	enable_irq(phyirq_to_virq(wcd9xxx_res, irq));
 }
 
 void wcd9xxx_disable_irq(struct wcd9xxx_core_resource *wcd9xxx_res, int irq)
 {
-	if (wcd9xxx_res->irq)
-		disable_irq_nosync(phyirq_to_virq(wcd9xxx_res, irq));
+	disable_irq_nosync(phyirq_to_virq(wcd9xxx_res, irq));
 }
 
 void wcd9xxx_disable_irq_sync(
 			struct wcd9xxx_core_resource *wcd9xxx_res, int irq)
 {
-	if (wcd9xxx_res->irq)
-		disable_irq(phyirq_to_virq(wcd9xxx_res, irq));
+	disable_irq(phyirq_to_virq(wcd9xxx_res, irq));
 }
 
 static int wcd9xxx_irq_setup_downstream_irq(
@@ -581,7 +558,6 @@ void wcd9xxx_irq_exit(struct wcd9xxx_core_resource *wcd9xxx_res)
 		disable_irq_wake(wcd9xxx_res->irq);
 		free_irq(wcd9xxx_res->irq, wcd9xxx_res);
 		/* Release parent's of node */
-		wcd9xxx_res->irq = 0;
 		wcd9xxx_irq_put_upstream_irq(wcd9xxx_res);
 	}
 	mutex_destroy(&wcd9xxx_res->irq_lock);
@@ -726,19 +702,14 @@ static int wcd9xxx_irq_probe(struct platform_device *pdev)
 	int irq;
 	struct irq_domain *domain;
 	struct wcd9xxx_irq_drv_data *data;
-	struct device_node *node = pdev->dev.of_node;
 	int ret = -EINVAL;
 
-	irq = of_get_named_gpio(node, "qcom,gpio-connect", 0);
-	if (!gpio_is_valid(irq)) {
-		dev_err(&pdev->dev, "TLMM connect gpio not found\n");
-		return -EPROBE_DEFER;
+	irq = platform_get_irq_byname(pdev, "cdc-int");
+	if (irq < 0) {
+		dev_err(&pdev->dev, "%s: Couldn't find cdc-int node(%d)\n",
+			__func__, irq);
+		return -EINVAL;
 	} else {
-		irq = gpio_to_irq(irq);
-		if (irq < 0) {
-			dev_err(&pdev->dev, "Unable to configure irq\n");
-			return irq;
-		}
 		dev_dbg(&pdev->dev, "%s: virq = %d\n", __func__, irq);
 		domain = irq_find_host(pdev->dev.of_node);
 		if (unlikely(!domain)) {

@@ -33,13 +33,6 @@ config FIH_PRESSURE
 config FIH_HUMIDITY
 	bool "FIH humidity sensor"
 	default n
-
-config FIH_USB
-	bool "fih usb"
-	default y
-	help
-	  support fih scsi function
-
 endmenu
 
 source "drivers/fih/9_axis_sensor/Kconfig"

@@ -1,6 +1,6 @@
 /* Qualcomm Crypto driver
  *
- * Copyright (c) 2010-2017, 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -3493,7 +3493,7 @@ static int _sha_hmac_setkey(struct crypto_ahash *tfm, const u8 *key,
 		ret =
 			wait_for_completion_interruptible(
 						&ahash_req_complete);
-		init_completion(&sha_ctx->ahash_req_complete);
+		INIT_COMPLETION(sha_ctx->ahash_req_complete);
 	}
 
 	kzfree(in_buf);
@@ -3689,7 +3689,7 @@ static int _sha_hmac_inner_hash(struct ahash_request *req,
 	if (ret == -EINPROGRESS || ret == -EBUSY) {
 		ret =
 		wait_for_completion_interruptible(&sha_ctx->ahash_req_complete);
-		init_completion(&sha_ctx->ahash_req_complete);
+		INIT_COMPLETION(sha_ctx->ahash_req_complete);
 	}
 
 	return ret;

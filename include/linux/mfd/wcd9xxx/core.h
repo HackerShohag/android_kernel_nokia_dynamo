@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,6 +48,10 @@
 #define TOMTOM_IS_1_0(ver) \
 	((ver == TOMTOM_VERSION_1_0) ? 1 : 0)
 
+#define TOMBAK_VERSION_1_0	0
+#define TOMBAK_IS_1_0(ver) \
+	((ver == TOMBAK_VERSION_1_0) ? 1 : 0)
+
 #define TASHA_VERSION_1_0     0
 #define TASHA_VERSION_1_1     1
 #define TASHA_VERSION_2_0     2
@@ -68,8 +72,6 @@ enum codec_variant {
 	WCD9330,
 	WCD9335,
 	WCD9326,
-	WCD9302,
-	WCD9306,
 };
 
 enum {
@@ -262,7 +264,6 @@ struct wcd9xxx {
 	u8 version;
 
 	int reset_gpio;
-	struct device_node *wcd_rst_np;
 
 	int (*read_dev)(struct wcd9xxx *wcd9xxx, unsigned short reg,
 			int bytes, void *dest, bool interface_reg);
@@ -272,7 +273,7 @@ struct wcd9xxx {
 	int (*post_reset)(struct wcd9xxx *wcd9xxx);
 
 	void *ssr_priv;
-	bool dev_up;
+	bool slim_device_bootup;
 
 	u32 num_of_supplies;
 	struct regulator_bulk_data *supplies;
@@ -321,12 +322,22 @@ int wcd9xxx_slim_bulk_write(struct wcd9xxx *wcd9xxx,
 			    struct wcd9xxx_reg_val *bulk_reg,
 			    unsigned int size, bool interface);
 
+void wcd9xxx_disable_supplies(struct wcd9xxx *wcd9xxx,
+				     void *pdata);
+
+int wcd9xxx_disable_static_supplies_to_optimum(struct wcd9xxx *wcd9xxx,
+						void *data);
+int wcd9xxx_enable_static_supplies_to_optimum(
+			struct wcd9xxx *wcd9xxx,
+			void *pdata);
+
 #if defined(CONFIG_WCD9310_CODEC) || \
 	defined(CONFIG_WCD9304_CODEC) || \
 	defined(CONFIG_WCD9320_CODEC) || \
 	defined(CONFIG_WCD9330_CODEC) || \
+	defined(CONFIG_WCD9306_CODEC) || \
 	defined(CONFIG_WCD9335_CODEC) || \
-	defined(CONFIG_WCD9306_CODEC)
+	defined(CONFIG_SND_SOC_MSM8X16_WCD)
 int __init wcd9xxx_irq_of_init(struct device_node *node,
 			       struct device_node *parent);
 #else

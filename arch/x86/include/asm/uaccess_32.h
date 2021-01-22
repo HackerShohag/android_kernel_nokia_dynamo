@@ -43,28 +43,21 @@ unsigned long __must_check __copy_from_user_ll_nocache_nozero
 static __always_inline unsigned long __must_check
 __copy_to_user_inatomic(void __user *to, const void *from, unsigned long n)
 {
-	check_object_size(from, n, true);
 	if (__builtin_constant_p(n)) {
 		unsigned long ret;
 
 		switch (n) {
 		case 1:
-			__uaccess_begin();
 			__put_user_size(*(u8 *)from, (u8 __user *)to,
 					1, ret, 1);
-			__uaccess_end();
 			return ret;
 		case 2:
-			__uaccess_begin();
 			__put_user_size(*(u16 *)from, (u16 __user *)to,
 					2, ret, 2);
-			__uaccess_end();
 			return ret;
 		case 4:
-			__uaccess_begin();
 			__put_user_size(*(u32 *)from, (u32 __user *)to,
 					4, ret, 4);
-			__uaccess_end();
 			return ret;
 		}
 	}
@@ -105,19 +98,13 @@ __copy_from_user_inatomic(void *to, const void __user *from, unsigned long n)
 
 		switch (n) {
 		case 1:
-			__uaccess_begin();
 			__get_user_size(*(u8 *)to, from, 1, ret, 1);
-			__uaccess_end();
 			return ret;
 		case 2:
-			__uaccess_begin();
 			__get_user_size(*(u16 *)to, from, 2, ret, 2);
-			__uaccess_end();
 			return ret;
 		case 4:
-			__uaccess_begin();
 			__get_user_size(*(u32 *)to, from, 4, ret, 4);
-			__uaccess_end();
 			return ret;
 		}
 	}
@@ -150,25 +137,18 @@ static __always_inline unsigned long
 __copy_from_user(void *to, const void __user *from, unsigned long n)
 {
 	might_fault();
-	check_object_size(to, n, false);
 	if (__builtin_constant_p(n)) {
 		unsigned long ret;
 
 		switch (n) {
 		case 1:
-			__uaccess_begin();
 			__get_user_size(*(u8 *)to, from, 1, ret, 1);
-			__uaccess_end();
 			return ret;
 		case 2:
-			__uaccess_begin();
 			__get_user_size(*(u16 *)to, from, 2, ret, 2);
-			__uaccess_end();
 			return ret;
 		case 4:
-			__uaccess_begin();
 			__get_user_size(*(u32 *)to, from, 4, ret, 4);
-			__uaccess_end();
 			return ret;
 		}
 	}
@@ -184,19 +164,13 @@ static __always_inline unsigned long __copy_from_user_nocache(void *to,
 
 		switch (n) {
 		case 1:
-			__uaccess_begin();
 			__get_user_size(*(u8 *)to, from, 1, ret, 1);
-			__uaccess_end();
 			return ret;
 		case 2:
-			__uaccess_begin();
 			__get_user_size(*(u16 *)to, from, 2, ret, 2);
-			__uaccess_end();
 			return ret;
 		case 4:
-			__uaccess_begin();
 			__get_user_size(*(u32 *)to, from, 4, ret, 4);
-			__uaccess_end();
 			return ret;
 		}
 	}
@@ -208,6 +182,35 @@ __copy_from_user_inatomic_nocache(void *to, const void __user *from,
 				  unsigned long n)
 {
        return __copy_from_user_ll_nocache_nozero(to, from, n);
+}
+
+unsigned long __must_check copy_to_user(void __user *to,
+					const void *from, unsigned long n);
+unsigned long __must_check _copy_from_user(void *to,
+					  const void __user *from,
+					  unsigned long n);
+
+
+extern void copy_from_user_overflow(void)
+#ifdef CONFIG_DEBUG_STRICT_USER_COPY_CHECKS
+	__compiletime_error("copy_from_user() buffer size is not provably correct")
+#else
+	__compiletime_warning("copy_from_user() buffer size is not provably correct")
+#endif
+;
+
+static inline unsigned long __must_check copy_from_user(void *to,
+					  const void __user *from,
+					  unsigned long n)
+{
+	int sz = __compiletime_object_size(to);
+
+	if (likely(sz == -1 || sz >= n))
+		n = _copy_from_user(to, from, n);
+	else
+		copy_from_user_overflow();
+
+	return n;
 }
 
 #endif /* _ASM_X86_UACCESS_32_H */

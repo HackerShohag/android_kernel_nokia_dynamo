@@ -53,6 +53,7 @@ Scott Hill shill@gtcocalcomp.com
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/errno.h>
+#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/usb.h>
@@ -848,7 +849,7 @@ static int gtco_probe(struct usb_interface *usbinterface,
 	gtco->inputdevice = input_dev;
 
 	/* Save interface information */
-	gtco->usbdev = interface_to_usbdev(usbinterface);
+	gtco->usbdev = usb_get_dev(interface_to_usbdev(usbinterface));
 	gtco->intf = usbinterface;
 
 	/* Allocate some data for incoming reports */
@@ -866,14 +867,6 @@ static int gtco_probe(struct usb_interface *usbinterface,
 		dev_err(&usbinterface->dev, "Failed to allocate URB\n");
 		error = -ENOMEM;
 		goto err_free_buf;
-	}
-
-	/* Sanity check that a device has an endpoint */
-	if (usbinterface->altsetting[0].desc.bNumEndpoints < 1) {
-		dev_err(&usbinterface->dev,
-			"Invalid number of endpoints\n");
-		error = -EINVAL;
-		goto err_free_urb;
 	}
 
 	/*
@@ -897,7 +890,7 @@ static int gtco_probe(struct usb_interface *usbinterface,
 	 * HID report descriptor
 	 */
 	if (usb_get_extra_descriptor(usbinterface->cur_altsetting,
-				     HID_DEVICE_TYPE, &hid_desc) != 0) {
+				     HID_DEVICE_TYPE, &hid_desc) != 0){
 		dev_err(&usbinterface->dev,
 			"Can't retrieve exta USB descriptor to get hid report descriptor length\n");
 		error = -EIO;

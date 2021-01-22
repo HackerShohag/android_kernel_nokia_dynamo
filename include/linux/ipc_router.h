@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -53,10 +53,8 @@ union rr_control_msg {
 	uint32_t cmd;
 	struct {
 		uint32_t cmd;
-		uint32_t checksum;
-		uint32_t versions;
+		uint32_t magic;
 		uint32_t capability;
-		uint32_t reserved;
 	} hello;
 	struct {
 		uint32_t cmd;
@@ -75,11 +73,6 @@ union rr_control_msg {
 struct comm_mode_info {
 	int mode;
 	void *xprt_info;
-};
-
-enum ipc_rtr_af_event_type {
-	IPCRTR_AF_INIT = 1,
-	IPCRTR_AF_DEINIT,
 };
 
 /**
@@ -126,7 +119,7 @@ struct msm_ipc_port {
 	struct list_head port_rx_q;
 	struct mutex port_rx_q_lock_lhc3;
 	char rx_ws_name[MAX_WS_NAME_SZ];
-	struct wakeup_source *port_rx_ws;
+	struct wakeup_source port_rx_ws;
 	wait_queue_head_t port_rx_wait_q;
 	wait_queue_head_t port_tx_wait_q;
 
@@ -249,26 +242,6 @@ int msm_ipc_router_register_server(struct msm_ipc_port *server_port,
  */
 int msm_ipc_router_unregister_server(struct msm_ipc_port *server_port);
 
-/**
- * register_ipcrtr_af_init_notifier() - Register for ipc router socket
- *				address family initialization callback
- * @nb: Notifier block which will be notified once address family is
- *	initialized.
- *
- * Return: 0 on success, standard error code otherwise.
- */
-int register_ipcrtr_af_init_notifier(struct notifier_block *nb);
-
-/**
- * unregister_ipcrtr_af_init_notifier() - Unregister for ipc router socket
- *					address family initialization callback
- * @nb: Notifier block which will be notified once address family is
- *	initialized.
- *
- * Return: 0 on success, standard error code otherwise.
- */
-int unregister_ipcrtr_af_init_notifier(struct notifier_block *nb);
-
 #else
 
 struct msm_ipc_port *msm_ipc_router_create_port(
@@ -327,16 +300,6 @@ static inline int msm_ipc_router_register_server(
 
 static inline int msm_ipc_router_unregister_server(
 			struct msm_ipc_port *server_port)
-{
-	return -ENODEV;
-}
-
-int register_ipcrtr_af_notifier(struct notifier_block *nb)
-{
-	return -ENODEV;
-}
-
-int register_ipcrtr_af_notifier(struct notifier_block *nb)
 {
 	return -ENODEV;
 }

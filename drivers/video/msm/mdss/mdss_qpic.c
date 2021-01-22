@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,6 +32,7 @@
 
 #include <linux/msm-sps.h>
 #include <linux/msm-bus.h>
+#include <mach/hardware.h>
 
 #include "mdss_fb.h"
 #include "mdss_qpic.h"
@@ -67,29 +68,10 @@ static struct platform_driver mdss_qpic_driver = {
 	},
 };
 
-static void mdss_qpic_clk_ctrl(bool enable)
-{
-	if (enable) {
-		if (qpic_res->qpic_clk)
-			clk_prepare_enable(qpic_res->qpic_clk);
-		if (qpic_res->qpic_a_clk)
-			clk_prepare_enable(qpic_res->qpic_a_clk);
-	} else {
-		if (qpic_res->qpic_a_clk)
-			clk_disable_unprepare(qpic_res->qpic_a_clk);
-		if (qpic_res->qpic_clk)
-			clk_disable_unprepare(qpic_res->qpic_clk);
-	}
-}
-
 int qpic_on(struct msm_fb_data_type *mfd)
 {
 	int ret;
-
-	mdss_qpic_clk_ctrl(true);
-
 	ret = mdss_qpic_panel_on(qpic_res->panel_data, &qpic_res->panel_io);
-	qpic_res->qpic_is_on = true;
 	return ret;
 }
 
@@ -99,10 +81,6 @@ int qpic_off(struct msm_fb_data_type *mfd)
 	ret = mdss_qpic_panel_off(qpic_res->panel_data, &qpic_res->panel_io);
 	if (use_irq)
 		qpic_interrupt_en(false);
-
-	mdss_qpic_clk_ctrl(false);
-	qpic_res->qpic_is_on = false;
-
 	return ret;
 }
 
@@ -129,11 +107,6 @@ static void mdss_qpic_pan_display(struct msm_fb_data_type *mfd)
 
 	if (!mfd) {
 		pr_err("%s: mfd is NULL!", __func__);
-		return;
-	}
-
-	if (!qpic_res->qpic_is_on) {
-		pr_err("%s: Failed since panel is not ON\n", __func__);
 		return;
 	}
 
@@ -236,9 +209,6 @@ int qpic_register_panel(struct mdss_panel_data *pdata)
 {
 	struct platform_device *mdss_fb_dev = NULL;
 	int rc;
-
-	if (!qpic_res)
-		return -ENODEV;
 
 	mdss_fb_dev = platform_device_alloc("mdss_fb", pdata->panel_info.pdest);
 	if (!mdss_fb_dev) {
@@ -362,7 +332,7 @@ void mdss_qpic_reset(void)
 
 	QPIC_OUTP(QPIC_REG_QPIC_LCDC_RESET, 1 << 0);
 	/* wait 100 us after reset as suggested by hw */
-	usleep_range(100, 100);
+	usleep(100);
 	time_end = (u32)ktime_to_ms(ktime_get()) +
 		QPIC_MAX_VSYNC_WAIT_TIME;
 	while (((QPIC_INP(QPIC_REG_QPIC_LCDC_STTS) & (1 << 8)) == 0)) {
@@ -371,7 +341,7 @@ void mdss_qpic_reset(void)
 			break;
 		}
 		/* yield 100 us for next polling by experiment*/
-		usleep_range(100, 100);
+		usleep(100);
 	}
 }
 
@@ -478,7 +448,7 @@ static int qpic_wait_for_fifo(void)
 		data &= 0x3F;
 		if (data == 0)
 			return ret;
-		reinit_completion(&qpic_res->fifo_eof_comp);
+		INIT_COMPLETION(qpic_res->fifo_eof_comp);
 		QPIC_OUTP(QPIC_REG_QPIC_LCDC_IRQ_EN, (1 << 4));
 		ret = wait_for_completion_timeout(&qpic_res->fifo_eof_comp,
 				msecs_to_jiffies(QPIC_MAX_VSYNC_WAIT_TIME));
@@ -498,7 +468,7 @@ static int qpic_wait_for_fifo(void)
 			if (data == 0)
 				break;
 			/* yield 10 us for next polling by experiment*/
-			usleep_range(10, 10);
+			usleep(10);
 			if (ktime_to_ms(ktime_get()) > time_end) {
 				pr_err("%s time out", __func__);
 				ret = -EBUSY;
@@ -517,7 +487,7 @@ static int qpic_wait_for_eof(void)
 		data = QPIC_INP(QPIC_REG_QPIC_LCDC_IRQ_STTS);
 		if (data & (1 << 2))
 			return ret;
-		reinit_completion(&qpic_res->fifo_eof_comp);
+		INIT_COMPLETION(qpic_res->fifo_eof_comp);
 		QPIC_OUTP(QPIC_REG_QPIC_LCDC_IRQ_EN, (1 << 2));
 		ret = wait_for_completion_timeout(&qpic_res->fifo_eof_comp,
 				msecs_to_jiffies(QPIC_MAX_VSYNC_WAIT_TIME));
@@ -536,7 +506,7 @@ static int qpic_wait_for_eof(void)
 			if (data & (1 << 2))
 				break;
 			/* yield 10 us for next polling by experiment*/
-			usleep_range(10, 10);
+			usleep(10);
 			if (ktime_to_ms(ktime_get()) > time_end) {
 				pr_err("%s wait for eof time out\n", __func__);
 				qpic_dump_reg();
@@ -767,14 +737,6 @@ static int mdss_qpic_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto probe_done;
 	}
-
-	qpic_res->qpic_a_clk = clk_get(&pdev->dev, "core_a_clk");
-	if (IS_ERR(qpic_res->qpic_a_clk))
-		pr_err("%s: Can't find core_a_clk", __func__);
-
-	qpic_res->qpic_clk = clk_get(&pdev->dev, "core_clk");
-	if (IS_ERR(qpic_res->qpic_clk))
-		pr_err("%s: Can't find core_clk", __func__);
 
 	qpic_res->irq = res->start;
 	qpic_res->res_init = true;

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2001 Deep Blue Solutions Ltd.
  * Copyright (C) 2012 ARM Ltd.
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -21,11 +21,10 @@
 #include <linux/linkage.h>
 #include <linux/init.h>
 #include <asm/assembler.h>
-#include <asm/cpufeature.h>
-#include <asm/alternative.h>
-#include <asm/uaccess.h>
 
-/*
+#include "proc-macros.S"
+
+ /*
  *     flush_dcache_louis()
  *
  *     Flush the D-cache up to the Level of Unification Inner Shareable
@@ -132,8 +131,6 @@ ENTRY(flush_cache_all)
 	ret	x12
 ENDPROC(flush_cache_all)
 
-
-
 /*
  *	flush_icache_range(start,end)
  *
@@ -158,7 +155,6 @@ ENTRY(flush_icache_range)
  *	- end     - virtual end address of region
  */
 ENTRY(__flush_cache_user_range)
-	uaccess_ttbr0_enable x2, x3, x4
 	dcache_line_size x2, x3
 	sub	x3, x2, #1
 	bic	x4, x0, x3
@@ -180,7 +176,6 @@ USER(9f, ic	ivau, x4	)		// invalidate I line PoU
 9:						// ignore any faulting cache operation
 	dsb	ish
 	isb
-	uaccess_ttbr0_disable x1
 	ret
 ENDPROC(flush_icache_range)
 ENDPROC(__flush_cache_user_range)
@@ -205,7 +200,7 @@ ENTRY(__flush_dcache_area)
 	b.lo	1b
 	dsb	sy
 	ret
-ENDPIPROC(__flush_dcache_area)
+ENDPROC(__flush_dcache_area)
 
 /*
  *	__inval_cache_range(start, end)
@@ -238,7 +233,7 @@ ENTRY(__dma_inv_range)
 	b.lo	2b
 	dsb	sy
 	ret
-ENDPIPROC(__inval_cache_range)
+ENDPROC(__inval_cache_range)
 ENDPROC(__dma_inv_range)
 
 /*
@@ -250,12 +245,7 @@ ENTRY(__dma_clean_range)
 	dcache_line_size x2, x3
 	sub	x3, x2, #1
 	bic	x0, x0, x3
-1:
-alternative_if_not ARM64_WORKAROUND_CLEAN_CACHE
-	dc	cvac, x0
-alternative_else
-	dc	civac, x0
-alternative_endif
+1:	dc	cvac, x0			// clean D / U line
 	add	x0, x0, x2
 	cmp	x0, x1
 	b.lo	1b
@@ -278,7 +268,7 @@ ENTRY(__dma_flush_range)
 	b.lo	1b
 	dsb	sy
 	ret
-ENDPIPROC(__dma_flush_range)
+ENDPROC(__dma_flush_range)
 
 /*
  *	__dma_map_area(start, size, dir)
@@ -291,7 +281,7 @@ ENTRY(__dma_map_area)
 	cmp	w2, #DMA_FROM_DEVICE
 	b.eq	__dma_inv_range
 	b	__dma_clean_range
-ENDPIPROC(__dma_map_area)
+ENDPROC(__dma_map_area)
 
 /*
  *	__dma_unmap_area(start, size, dir)
@@ -304,4 +294,4 @@ ENTRY(__dma_unmap_area)
 	cmp	w2, #DMA_TO_DEVICE
 	b.ne	__dma_inv_range
 	ret
-ENDPIPROC(__dma_unmap_area)
+ENDPROC(__dma_unmap_area)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,6 +15,8 @@
 
 #include "msm_fd_dev.h"
 
+int msm_fd_hw_is_finished(struct msm_fd_device *fd);
+
 int msm_fd_hw_get_face_count(struct msm_fd_device *fd);
 
 int msm_fd_hw_get_result_x(struct msm_fd_device *fd, int idx);
@@ -27,13 +29,6 @@ void msm_fd_hw_get_result_conf_size(struct msm_fd_device *fd,
 void msm_fd_hw_get_result_angle_pose(struct msm_fd_device *fd, int idx,
 	u32 *angle, u32 *pose);
 
-int msm_fd_hw_request_irq(struct platform_device *pdev,
-	struct msm_fd_device *fd, work_func_t work_func);
-
-void msm_fd_hw_release_irq(struct msm_fd_device *fd);
-
-int msm_fd_hw_get_revision(struct msm_fd_device *fd);
-
 void msm_fd_hw_release_mem_resources(struct msm_fd_device *fd);
 
 int msm_fd_hw_get_mem_resources(struct platform_device *pdev,
@@ -43,17 +38,9 @@ int msm_fd_hw_get_iommu(struct msm_fd_device *fd);
 
 void msm_fd_hw_put_iommu(struct msm_fd_device *fd);
 
-int msm_fd_hw_get_regulators(struct msm_fd_device *fd);
-
-int msm_fd_hw_put_regulators(struct msm_fd_device *fd);
-
 int msm_fd_hw_get_clocks(struct msm_fd_device *fd);
 
 int msm_fd_hw_put_clocks(struct msm_fd_device *fd);
-
-int msm_fd_hw_get_bus(struct msm_fd_device *fd);
-
-void msm_fd_hw_put_bus(struct msm_fd_device *fd);
 
 int msm_fd_hw_get(struct msm_fd_device *fd, unsigned int clock_rate_idx);
 

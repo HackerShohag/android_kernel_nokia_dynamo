@@ -107,9 +107,8 @@ void audio_aio_cb(uint32_t opcode, uint32_t token,
 		audio_aio_post_event(audio, AUDIO_EVENT_STREAM_INFO, e_payload);
 		break;
 	case RESET_EVENTS:
-		pr_err("%s: Received opcode:0x%x\n", __func__, opcode);
+		pr_debug("%s: Received opcode:0x%x\n", __func__, opcode);
 		audio->stopped = 1;
-		audio->reset_event = true;
 		wake_up(&audio->event_wait);
 		break;
 	default:
@@ -183,7 +182,7 @@ void audio_aio_async_read_ack(struct q6audio_aio *audio, uint32_t token,
 	filled_buf = list_first_entry(&audio->in_queue,
 					struct audio_aio_buffer_node, list);
 
-	pr_debug("%s token: 0x[%x], filled_buf->token: 0x[%x]",
+	pr_debug("%s token: 0x[%d], filled_buf->token: 0x[%lu]",
 				 __func__, token, filled_buf->token);
 	if (token == (filled_buf->token)) {
 		list_del(&filled_buf->list);
@@ -213,7 +212,7 @@ void audio_aio_async_read_ack(struct q6audio_aio *audio, uint32_t token,
 					event_payload);
 		kfree(filled_buf);
 	} else {
-		pr_err("%s[%pK]:expected=%x ret=%x\n",
+		pr_err("%s[%pK]:expected=%lx ret=%x\n",
 			__func__, audio, filled_buf->token, token);
 		spin_unlock_irqrestore(&audio->dsp_lock, flags);
 	}

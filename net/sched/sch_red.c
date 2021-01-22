@@ -74,7 +74,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		break;
 
 	case RED_PROB_MARK:
-		qdisc_qstats_overlimit(sch);
+		sch->qstats.overlimits++;
 		if (!red_use_ecn(q) || !INET_ECN_set_ce(skb)) {
 			q->stats.prob_drop++;
 			goto congestion_drop;
@@ -84,7 +84,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		break;
 
 	case RED_HARD_MARK:
-		qdisc_qstats_overlimit(sch);
+		sch->qstats.overlimits++;
 		if (red_use_harddrop(q) || !red_use_ecn(q) ||
 		    !INET_ECN_set_ce(skb)) {
 			q->stats.forced_drop++;
@@ -100,7 +100,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		sch->q.qlen++;
 	} else if (net_xmit_drop_count(ret)) {
 		q->stats.pdrop++;
-		qdisc_qstats_drop(sch);
+		sch->qstats.drops++;
 	}
 	return ret;
 
@@ -142,7 +142,7 @@ static unsigned int red_drop(struct Qdisc *sch)
 
 	if (child->ops->drop && (len = child->ops->drop(child)) > 0) {
 		q->stats.other++;
-		qdisc_qstats_drop(sch);
+		sch->qstats.drops++;
 		sch->q.qlen--;
 		return len;
 	}
@@ -210,8 +210,7 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt)
 	q->flags = ctl->flags;
 	q->limit = ctl->limit;
 	if (child) {
-		qdisc_tree_reduce_backlog(q->qdisc, q->qdisc->q.qlen,
-					  q->qdisc->qstats.backlog);
+		qdisc_tree_decrease_qlen(q->qdisc, q->qdisc->q.qlen);
 		qdisc_destroy(q->qdisc);
 		q->qdisc = child;
 	}
@@ -314,7 +313,12 @@ static int red_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 	if (new == NULL)
 		new = &noop_qdisc;
 
-	*old = qdisc_replace(sch, new, &q->qdisc);
+	sch_tree_lock(sch);
+	*old = q->qdisc;
+	q->qdisc = new;
+	qdisc_tree_decrease_qlen(*old, (*old)->q.qlen);
+	qdisc_reset(*old);
+	sch_tree_unlock(sch);
 	return 0;
 }
 

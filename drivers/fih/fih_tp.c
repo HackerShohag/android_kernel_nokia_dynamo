@@ -3,8 +3,6 @@
 #include <linux/string.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
 
 #include <fih/hwid.h>
 
@@ -61,22 +59,22 @@ static int fih_touch_proc_open(struct inode *inode, struct file *file)
 static int fih_touch_proc_write(struct file *file, const char __user *buffer,
 	size_t count, loff_t *ppos)
 {
-//	int ret =0;
+	int ret =0;
 	pr_err("F@Touch Do Touch Selftest\n");
     //E1M
     if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
         touch_selftest();
     }
     //FAO
-    // else{
-	// ret = txtotxshort();
-	// ret = fullRawCap();
-	// if(TestResult_once !=0)
-	// {
-		// Touch_TestResult = 0;
-		// TestResult_once =0;
-	// }
-    // }
+    else{
+	ret = txtotxshort();
+	ret = fullRawCap();
+	if(TestResult_once !=0)
+	{
+		Touch_TestResult = 0;
+		TestResult_once =0;
+	}
+    }
     
 	return count;
 }
@@ -94,16 +92,16 @@ static struct file_operations touch_proc_file_ops = {
 static int fih_touch_read_fwver_show(struct seq_file *m, void *v)
 {
 	char fwver[30]={0};
-//	int ret =0;
+	int ret =0;
 	pr_err("F@Touch Read Touch firmware version\n");
 	//FIH read TP FW start
 	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
 	    touch_tpfwver_read(fwver);
 	}
-	// else{
-	// //FAO
-	    // ret = touch_fwver_read(fwver);
-	// }
+	else{
+	//FAO
+	    ret = touch_fwver_read(fwver);
+	}
     
 	seq_printf(m, "%s", fwver);
 	return 0;
@@ -126,10 +124,10 @@ static struct file_operations touch_fwver_proc_file_ops = {
 //touch_fwback start
 static int fih_touch_fwback_read_show(struct seq_file *m, void *v)
 {
-	//int ret = 0;
+	int ret = 0;
 	char buf[10]={0};
 	pr_err("F@Touch Read Touch firmware flag\n");
-//	ret = touch_fwback_read(buf);
+	ret = touch_fwback_read(buf);
 	seq_printf(m, "%s", buf);
 	return 0;
 }
@@ -142,9 +140,9 @@ static int fih_touch_fwback_proc_open(struct inode *inode, struct file *file)
 static int fih_touch_fwback_proc_write(struct file *file, const char __user *buffer,
 	size_t count, loff_t *ppos)
 {
-	//int ret =0;
+	int ret =0;
 	pr_err("F@Touch Write Touch firmware flag to 1\n");
-//	ret = touch_fwback_write();
+	ret = touch_fwback_write();
 	return count;
 }
 
@@ -162,16 +160,16 @@ static struct file_operations touch_fwback_proc_file_ops = {
 static int fih_touch_read_fwimver_show(struct seq_file *m, void *v)
 {
 	char fwimver[30]={0};
-	//int ret =0;
+	int ret =0;
 	pr_err("F@Touch Read Touch firmware image version\n");
 	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
 	//E1M
 	    touch_e1m_fwimver_read(fwimver);
 	}
-	// else{
-	// //FAO
-	    // ret = touch_fwimver_read(fwimver);
-	// }
+	else{
+	//FAO
+	    ret = touch_fwimver_read(fwimver);
+	}
 	seq_printf(m, "%s", fwimver);
 	return 0;
 }
@@ -204,20 +202,14 @@ static int fih_touch_scover_proc_open(struct inode *inode, struct file *file)
 static int fih_touch_scover_proc_write(struct file *file, const char __user *buffer,
 	size_t count, loff_t *ppos)
 {
-	char *buf;
-	unsigned int input = 0;
-
-	if (count < 1)
-		return -EINVAL;
-	buf = kzalloc(count, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	if (copy_from_user(buf, buffer, count))
-		return -EFAULT;
-	input = simple_strtoul(buf, NULL, 10);
+	int ret =0;
+	int input;
+	if (sscanf(buffer, "%u", &input) != 1)
+	{
+		 return -EINVAL;
+	}
 	pr_err("F@Touch Write Touch scover flag to %d\n",input);
-	//ret = touch_scover_write(input);
+	ret = touch_scover_write(input);
 	return count;
 }
 
@@ -235,10 +227,10 @@ static struct file_operations touch_scover_proc_file_ops = {
 static int fih_touch_upgrade_read_show(struct seq_file *m, void *v)
 {
 	char upgrade_flag[10]={0};
-	//int ret =0;
+	int ret =0;
 	pr_err("F@Touch Read Touch upgrade flag\n");
     //FAO
-	// ret = touch_upgrade_read(upgrade_flag);
+	ret = touch_upgrade_read(upgrade_flag);
     //E1M
 	seq_printf(m, "%s", upgrade_flag);
 	return 0;
@@ -263,21 +255,15 @@ static int fih_touch_alt_rst_proc_open(struct inode *inode, struct file *file)
 static ssize_t fih_touch_alt_rst_proc_write(struct file *file, const char __user *buffer,
        size_t count, loff_t *ppos)
 {
-	char *buf;
-	unsigned int input = 0;
+       int input;
 
-	if (count < 1)
-		return -EINVAL;
-	buf = kzalloc(count, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
+       if (sscanf(buffer, "%u", &input) != 1)
+       {
+               return -EINVAL;
+       }
 
-	if (copy_from_user(buf, buffer, count))
-		return -EFAULT;
-	input = simple_strtoul(buf, NULL, 10);
-
-	fts_fih_tp_rst();
-	return count;
+       fts_fih_tp_rst();
+       return count;
 }
 
 static struct file_operations touch_alt_rst_file_ops = {
@@ -325,21 +311,15 @@ static int fih_touch_alt_st_enable_proc_open(struct inode *inode, struct file *f
 static ssize_t fih_touch_alt_st_enable_proc_write(struct file *file, const char __user *buffer,
        size_t count, loff_t *ppos)
 {
-	char *buf;
-	unsigned int input = 0;
+       int input;
 
-	if (count < 1)
-		return -EINVAL;
-	buf = kzalloc(count, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
+       if (sscanf(buffer, "%u", &input) != 1)
+       {
+               return -EINVAL;
+       }
 
-	if (copy_from_user(buf, buffer, count))
-		return -EFAULT;
-	input = simple_strtoul(buf, NULL, 10);
-
-	fts_fih_tp_enable(input);
-	return count;
+       fts_fih_tp_enable(input);
+       return count;
 }
 static struct file_operations touch_alt_st_enable_file_ops = {
        .owner   = THIS_MODULE,
@@ -354,28 +334,24 @@ static struct file_operations touch_alt_st_enable_file_ops = {
 static int fih_touch_upgrade_proc_write(struct file *file, const char __user *buffer,
 	size_t count, loff_t *ppos)
 {
-	char *buf;
-	unsigned int input = 0;
-
-	if (count < 1)
-		return -EINVAL;
-	buf = kzalloc(count, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	if (copy_from_user(buf, buffer, count))
-		return -EFAULT;
-	input = simple_strtoul(buf, NULL, 10);
+	int ret =0;
+	char input[10]={0};
+	int input1;
+	strncpy(input,buffer,sizeof(input)-1);
 	
-	pr_err("F@Touch Write Touch upgrade flag to %d\n",input);
+	pr_err("F@Touch Write Touch upgrade flag to %s\n",input);
+	if (sscanf(buffer, "%u", &input1) != 1)
+	{
+	    return -EINVAL;
+	}
 	//E1M
 	if ( (fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M )||( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_AT2 )){
-	    touch_upgrade(input);
+	    touch_upgrade(input1);
 	}
-	// else{
-	// //FAO
-	    // ret = touch_upgrade_write(input);
-	// }
+	else{
+	//FAO
+	    ret = touch_upgrade_write(input);
+	}
     
 	return count;
 }
@@ -394,10 +370,10 @@ static struct file_operations touch_upgrade_proc_file_ops = {
 static int fih_touch_read_vendor_show(struct seq_file *m, void *v)
 {
 	char vendor[30]={0};
-	//int ret =0;
+	int ret =0;
 	pr_err("F@Touch Read Touch vendor\n");
     //FAO
-	// ret = touch_vendor_read(vendor);
+	ret = touch_vendor_read(vendor);
     //E1M
     
 	seq_printf(m, "%s", vendor);

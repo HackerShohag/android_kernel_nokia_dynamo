@@ -9,35 +9,7 @@
 
 #include <linux/compiler.h>
 #include <asm/page.h>
-#include <asm/percpu.h>
 #include <asm/types.h>
-
-/*
- * TOP_OF_KERNEL_STACK_PADDING is a number of unused bytes that we
- * reserve at the top of the kernel stack.  We do it because of a nasty
- * 32-bit corner case.  On x86_32, the hardware stack frame is
- * variable-length.  Except for vm86 mode, struct pt_regs assumes a
- * maximum-length frame.  If we enter from CPL 0, the top 8 bytes of
- * pt_regs don't actually exist.  Ordinarily this doesn't matter, but it
- * does in at least one case:
- *
- * If we take an NMI early enough in SYSENTER, then we can end up with
- * pt_regs that extends above sp0.  On the way out, in the espfix code,
- * we can read the saved SS value, but that value will be above sp0.
- * Without this offset, that can result in a page fault.  (We are
- * careful that, in this case, the value we read doesn't matter.)
- *
- * In vm86 mode, the hardware frame is much longer still, but we neither
- * access the extra members from NMI context, nor do we write such a
- * frame at sp0 at all.
- *
- * x86_64 has a fixed-length stack frame.
- */
-#ifdef CONFIG_X86_32
-# define TOP_OF_KERNEL_STACK_PADDING 8
-#else
-# define TOP_OF_KERNEL_STACK_PADDING 0
-#endif
 
 /*
  * low level task data that entry.S needs immediate access to
@@ -56,9 +28,17 @@ struct thread_info {
 	__u32			flags;		/* low level flags */
 	__u32			status;		/* thread synchronous flags */
 	__u32			cpu;		/* current CPU */
-	int			saved_preempt_count;
+	int			preempt_count;	/* 0 => preemptable,
+						   <0 => BUG */
 	mm_segment_t		addr_limit;
+	struct restart_block    restart_block;
 	void __user		*sysenter_return;
+#ifdef CONFIG_X86_32
+	unsigned long           previous_esp;   /* ESP of the previous stack in
+						   case of nested (IRQ) stacks
+						*/
+	__u8			supervisor_stack[0];
+#endif
 	unsigned int		sig_on_uaccess_error:1;
 	unsigned int		uaccess_err:1;	/* uaccess failed */
 };
@@ -69,8 +49,11 @@ struct thread_info {
 	.exec_domain	= &default_exec_domain,	\
 	.flags		= 0,			\
 	.cpu		= 0,			\
-	.saved_preempt_count = INIT_PREEMPT_COUNT,	\
+	.preempt_count	= INIT_PREEMPT_COUNT,	\
 	.addr_limit	= KERNEL_DS,		\
+	.restart_block = {			\
+		.fn = do_no_restart_syscall,	\
+	},					\
 }
 
 #define init_thread_info	(init_thread_union.thread_info)
@@ -106,7 +89,7 @@ struct thread_info {
 #define TIF_FORK		18	/* ret_from_fork */
 #define TIF_NOHZ		19	/* in adaptive nohz mode */
 #define TIF_MEMDIE		20	/* is terminating due to OOM killer */
-#define TIF_POLLING_NRFLAG	21	/* idle is polling for TIF_NEED_RESCHED */
+#define TIF_DEBUG		21	/* uses debug registers */
 #define TIF_IO_BITMAP		22	/* uses I/O bitmap */
 #define TIF_FORCED_TF		24	/* true if TF in eflags artificially */
 #define TIF_BLOCKSTEP		25	/* set when we want DEBUGCTLMSR_BTF */
@@ -130,7 +113,7 @@ struct thread_info {
 #define _TIF_IA32		(1 << TIF_IA32)
 #define _TIF_FORK		(1 << TIF_FORK)
 #define _TIF_NOHZ		(1 << TIF_NOHZ)
-#define _TIF_POLLING_NRFLAG	(1 << TIF_POLLING_NRFLAG)
+#define _TIF_DEBUG		(1 << TIF_DEBUG)
 #define _TIF_IO_BITMAP		(1 << TIF_IO_BITMAP)
 #define _TIF_FORCED_TF		(1 << TIF_FORCED_TF)
 #define _TIF_BLOCKSTEP		(1 << TIF_BLOCKSTEP)
@@ -164,18 +147,20 @@ struct thread_info {
 /* Only used for 64 bit */
 #define _TIF_DO_NOTIFY_MASK						\
 	(_TIF_SIGPENDING | _TIF_MCE_NOTIFY | _TIF_NOTIFY_RESUME |	\
-	 _TIF_USER_RETURN_NOTIFY | _TIF_UPROBE)
+	 _TIF_USER_RETURN_NOTIFY)
 
 /* flags to check in __switch_to() */
 #define _TIF_WORK_CTXSW							\
 	(_TIF_IO_BITMAP|_TIF_NOTSC|_TIF_BLOCKSTEP)
 
 #define _TIF_WORK_CTXSW_PREV (_TIF_WORK_CTXSW|_TIF_USER_RETURN_NOTIFY)
-#define _TIF_WORK_CTXSW_NEXT (_TIF_WORK_CTXSW)
+#define _TIF_WORK_CTXSW_NEXT (_TIF_WORK_CTXSW|_TIF_DEBUG)
 
-#define STACK_WARN		(THREAD_SIZE/8)
-#define KERNEL_STACK_OFFSET	(5*(BITS_PER_LONG/8))
+#define PREEMPT_ACTIVE		0x10000000
 
+#ifdef CONFIG_X86_32
+
+#define STACK_WARN	(THREAD_SIZE/8)
 /*
  * macros/functions for gaining access to the thread information structure
  *
@@ -183,6 +168,40 @@ struct thread_info {
  */
 #ifndef __ASSEMBLY__
 
+
+/* how to get the current stack pointer from C */
+register unsigned long current_stack_pointer asm("esp") __used;
+
+/* how to get the thread information struct from C */
+static inline struct thread_info *current_thread_info(void)
+{
+	return (struct thread_info *)
+		(current_stack_pointer & ~(THREAD_SIZE - 1));
+}
+
+#else /* !__ASSEMBLY__ */
+
+/* how to get the thread information struct from ASM */
+#define GET_THREAD_INFO(reg)	 \
+	movl $-THREAD_SIZE, reg; \
+	andl %esp, reg
+
+/* use this one if reg already contains %esp */
+#define GET_THREAD_INFO_WITH_ESP(reg) \
+	andl $-THREAD_SIZE, reg
+
+#endif
+
+#else /* X86_32 */
+
+#include <asm/percpu.h>
+#define KERNEL_STACK_OFFSET (5*8)
+
+/*
+ * macros/functions for gaining access to the thread information structure
+ * preempt_count needs to be 1 initially, until the scheduler is functional.
+ */
+#ifndef __ASSEMBLY__
 DECLARE_PER_CPU(unsigned long, kernel_stack);
 
 static inline struct thread_info *current_thread_info(void)
@@ -193,56 +212,12 @@ static inline struct thread_info *current_thread_info(void)
 	return ti;
 }
 
-/*
- * Walks up the stack frames to make sure that the specified object is
- * entirely contained by a single stack frame.
- *
- * Returns:
- *		 1 if within a frame
- *		-1 if placed across a frame boundary (or outside stack)
- *		 0 unable to determine (no frame pointers, etc)
- */
-static inline int arch_within_stack_frames(const void * const stack,
-					   const void * const stackend,
-					   const void *obj, unsigned long len)
-{
-#if defined(CONFIG_FRAME_POINTER)
-	const void *frame = NULL;
-	const void *oldframe;
-
-	oldframe = __builtin_frame_address(1);
-	if (oldframe)
-		frame = __builtin_frame_address(2);
-	/*
-	 * low ----------------------------------------------> high
-	 * [saved bp][saved ip][args][local vars][saved bp][saved ip]
-	 *                     ^----------------^
-	 *               allow copies only within here
-	 */
-	while (stack <= frame && frame < stackend) {
-		/*
-		 * If obj + len extends past the last frame, this
-		 * check won't pass and the next frame will be 0,
-		 * causing us to bail out and correctly report
-		 * the copy as invalid.
-		 */
-		if (obj + len <= frame)
-			return obj >= oldframe + 2 * sizeof(void *) ? 1 : -1;
-		oldframe = frame;
-		frame = *(const void * const *)frame;
-	}
-	return -1;
-#else
-	return 0;
-#endif
-}
-
 #else /* !__ASSEMBLY__ */
 
 /* how to get the thread information struct from ASM */
 #define GET_THREAD_INFO(reg) \
-	_ASM_MOV PER_CPU_VAR(kernel_stack),reg ; \
-	_ASM_SUB $(THREAD_SIZE-KERNEL_STACK_OFFSET),reg ;
+	movq PER_CPU_VAR(kernel_stack),reg ; \
+	subq $(THREAD_SIZE-KERNEL_STACK_OFFSET),reg
 
 /*
  * Same if PER_CPU_VAR(kernel_stack) is, perhaps with some offset, already in
@@ -252,6 +227,8 @@ static inline int arch_within_stack_frames(const void * const stack,
 
 #endif
 
+#endif /* !X86_32 */
+
 /*
  * Thread-synchronous status.
  *
@@ -260,6 +237,8 @@ static inline int arch_within_stack_frames(const void * const stack,
  * have to worry about atomic accesses.
  */
 #define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
+#define TS_POLLING		0x0004	/* idle task polling need_resched,
+					   skip sending interrupt */
 #define TS_RESTORE_SIGMASK	0x0008	/* restore signal mask in do_signal() */
 
 #ifndef __ASSEMBLY__

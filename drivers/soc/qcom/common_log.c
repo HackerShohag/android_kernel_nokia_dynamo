@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,13 +17,10 @@
 #include <linux/kallsyms.h>
 #include <linux/slab.h>
 #include <linux/kmemleak.h>
-#include <linux/async.h>
 #include <soc/qcom/memory_dump.h>
 
 #define MISC_DUMP_DATA_LEN		4096
 #define PMIC_DUMP_DATA_LEN		4096
-#define VSENSE_DUMP_DATA_LEN		4096
-#define RPM_DUMP_DATA_LEN		(160 * 1024)
 
 void register_misc_dump(void)
 {
@@ -86,78 +83,6 @@ static void register_pmic_dump(void)
 		ret = msm_dump_data_register(MSM_DUMP_TABLE_APPS, &dump_entry);
 		if (ret) {
 			pr_err("Registering pmic dump region failed\n");
-			goto err1;
-		}
-		return;
-err1:
-		kfree(dump_addr);
-err0:
-		kfree(dump_data);
-	}
-}
-
-static void register_vsense_dump(void)
-{
-	static void *dump_addr;
-	int ret;
-	struct msm_dump_entry dump_entry;
-	struct msm_dump_data *dump_data;
-
-	if (MSM_DUMP_MAJOR(msm_dump_table_version()) > 1) {
-		dump_data = kzalloc(sizeof(struct msm_dump_data), GFP_KERNEL);
-		if (!dump_data) {
-			pr_err("dump data structure allocation failed for vsense data\n");
-			return;
-		}
-		dump_addr = kzalloc(VSENSE_DUMP_DATA_LEN, GFP_KERNEL);
-		if (!dump_addr) {
-			pr_err("buffer space allocation failed for vsense data\n");
-			goto err0;
-		}
-
-		dump_data->addr = virt_to_phys(dump_addr);
-		dump_data->len = VSENSE_DUMP_DATA_LEN;
-		dump_entry.id = MSM_DUMP_DATA_VSENSE;
-		dump_entry.addr = virt_to_phys(dump_data);
-		ret = msm_dump_data_register(MSM_DUMP_TABLE_APPS, &dump_entry);
-		if (ret) {
-			pr_err("Registering vsense dump region failed\n");
-			goto err1;
-		}
-		return;
-err1:
-		kfree(dump_addr);
-err0:
-		kfree(dump_data);
-	}
-}
-
-void register_rpm_dump(void)
-{
-	static void *dump_addr;
-	int ret;
-	struct msm_dump_entry dump_entry;
-	struct msm_dump_data *dump_data;
-
-	if (MSM_DUMP_MAJOR(msm_dump_table_version()) > 1) {
-		dump_data = kzalloc(sizeof(struct msm_dump_data), GFP_KERNEL);
-		if (!dump_data) {
-			pr_err("rpm dump data structure allocation failed\n");
-			return;
-		}
-		dump_addr = kzalloc(RPM_DUMP_DATA_LEN, GFP_KERNEL);
-		if (!dump_addr) {
-			pr_err("rpm dump buffer space allocation failed\n");
-			goto err0;
-		}
-
-		dump_data->addr = virt_to_phys(dump_addr);
-		dump_data->len = RPM_DUMP_DATA_LEN;
-		dump_entry.id = MSM_DUMP_DATA_RPM;
-		dump_entry.addr = virt_to_phys(dump_data);
-		ret = msm_dump_data_register(MSM_DUMP_TABLE_APPS, &dump_entry);
-		if (ret) {
-			pr_err("Registering rpm dump region failed\n");
 			goto err1;
 		}
 		return;
@@ -236,19 +161,11 @@ static void __init common_log_register_log_buf(void)
 	}
 }
 
-static void __init async_common_log_init(void *data, async_cookie_t cookie)
+static int __init msm_common_log_init(void)
 {
 	common_log_register_log_buf();
 	register_misc_dump();
 	register_pmic_dump();
-	register_vsense_dump();
-	register_rpm_dump();
-}
-
-static int __init msm_common_log_init(void)
-{
-	/* Initialize asynchronously to reduce boot time */
-	async_schedule(async_common_log_init, NULL);
 	return 0;
 }
 late_initcall(msm_common_log_init);

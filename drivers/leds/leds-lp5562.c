@@ -13,6 +13,7 @@
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/i2c.h>
+#include <linux/init.h>
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -397,7 +398,7 @@ static void lp5562_write_program_memory(struct lp55xx_chip *chip,
 static inline bool _is_pc_overflow(struct lp55xx_predef_pattern *ptn)
 {
 	return (ptn->size_r >= LP5562_PROGRAM_LENGTH ||
-	       ptn->size_g >= LP5562_PROGRAM_LENGTH ||
+		ptn->size_g >= LP5562_PROGRAM_LENGTH ||
 		ptn->size_b >= LP5562_PROGRAM_LENGTH ||
 		ptn->size_w >= LP5562_PROGRAM_LENGTH
 		);
@@ -407,7 +408,8 @@ static int lp5562_run_predef_led_pattern(struct lp55xx_chip *chip, int mode)
 {
 	struct lp55xx_predef_pattern *ptn;
 	int i;
-
+	
+	//printk("into lp5562_run_predef_led_pattern and mode %d\n",mode);
 	if (mode == LP5562_PATTERN_OFF) {
 		lp5562_run_engine(chip, false);
 		return 0;
@@ -584,16 +586,17 @@ static int lp5562_probe(struct i2c_client *client,
 	struct lp55xx_led *led;
 	struct lp55xx_platform_data *pdata;
 	struct device_node *np = client->dev.of_node;
-
+	printk("jason add lp5562_probe\n");
 	if (!dev_get_platdata(&client->dev)) {
+		printk("jason add lp5562_probe 1\n");
 		if (np) {
 			ret = lp55xx_of_populate_pdata(&client->dev, np);
 			if (ret < 0)
 				return ret;
 		} else {
-			dev_err(&client->dev, "no platform data\n");
-			return -EINVAL;
-		}
+		dev_err(&client->dev, "no platform data\n");
+		return -EINVAL;
+	}
 	}
 	pdata = dev_get_platdata(&client->dev);
 

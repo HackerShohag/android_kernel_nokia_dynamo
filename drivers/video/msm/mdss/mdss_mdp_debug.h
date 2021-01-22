@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,14 +21,6 @@
 #include "mdss.h"
 #include "mdss_mdp.h"
 
-#define MDP_DANGER_SAFE_BIT_OFFSET	0
-#define VIG_DANGER_SAFE_BIT_OFFSET	4
-#define RGB_DANGER_SAFE_BIT_OFFSET	12
-#define DMA_DANGER_SAFE_BIT_OFFSET	20
-#define CURSOR_DANGER_SAFE_BIT_OFFSET	24
-
-#define DANGER_SAFE_STATUS(X, Y) (((X) & (BIT(Y) | BIT((Y)+1))) >> (Y))
-
 static inline const char *mdss_mdp_pipetype2str(u32 ptype)
 {
 	static const char const *strings[] = {
@@ -36,11 +28,10 @@ static inline const char *mdss_mdp_pipetype2str(u32 ptype)
 		PIPE_TYPE(VIG),
 		PIPE_TYPE(RGB),
 		PIPE_TYPE(DMA),
-		PIPE_TYPE(CURSOR),
 #undef PIPE_TYPE
 	};
 
-	if (ptype >= ARRAY_SIZE(strings) || !strings[ptype])
+	if (ptype >= ARRAY_SIZE(strings))
 		return "UNKOWN";
 
 	return strings[ptype];
@@ -68,21 +59,15 @@ static inline const char *mdss_mdp_format2str(u32 format)
 		FORMAT_NAME(Y_CR_CB_GH2V2),
 		FORMAT_NAME(YCBYCR_H2V1),
 		FORMAT_NAME(YCRYCB_H2V1),
-		FORMAT_NAME(RGBA_8888_UBWC),
-		FORMAT_NAME(RGBX_8888_UBWC),
-		FORMAT_NAME(RGB_565_UBWC),
-		FORMAT_NAME(Y_CBCR_H2V2_UBWC)
 #undef FORMAT_NAME
 	};
 
-	if (format >= ARRAY_SIZE(strings) || !strings[format])
+	if (format >= ARRAY_SIZE(strings))
 		return "UNKOWN";
 
 	return strings[format];
 }
 void mdss_mdp_dump(struct mdss_data_type *mdata);
-void mdss_mdp_hw_rev_debug_caps_init(struct mdss_data_type *mdata);
-
 
 #ifdef CONFIG_DEBUG_FS
 int mdss_mdp_debugfs_init(struct mdss_data_type *mdata);

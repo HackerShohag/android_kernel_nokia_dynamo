@@ -59,8 +59,7 @@
 #define FTXXXX_INI_CONFIG_FILEPATH "/system/etc/"
 #define FTXXXX_INI_CONFIG_NAME "FT8716U.ini"
 
-int Touch_TestResult=0;
-EXPORT_SYMBOL(Touch_TestResult);
+extern int Touch_TestResult;
 
 #define FTS_TEST_BUFFER_SIZE        80*1024
 #define FTS_TEST_PRINT_SIZE     128

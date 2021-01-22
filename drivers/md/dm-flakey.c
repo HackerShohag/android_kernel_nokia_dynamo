@@ -176,7 +176,7 @@ static int flakey_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
 	fc = kzalloc(sizeof(*fc), GFP_KERNEL);
 	if (!fc) {
-		ti->error = "Cannot allocate context";
+		ti->error = "Cannot allocate linear context";
 		return -ENOMEM;
 	}
 	fc->start_time = jiffies;
@@ -248,8 +248,7 @@ static void flakey_map_bio(struct dm_target *ti, struct bio *bio)
 
 	bio->bi_bdev = fc->dev->bdev;
 	if (bio_sectors(bio))
-		bio->bi_iter.bi_sector =
-			flakey_map_sector(ti, bio->bi_iter.bi_sector);
+		bio->bi_sector = flakey_map_sector(ti, bio->bi_sector);
 }
 
 static void corrupt_bio_data(struct bio *bio, struct flakey_c *fc)
@@ -266,8 +265,8 @@ static void corrupt_bio_data(struct bio *bio, struct flakey_c *fc)
 		DMDEBUG("Corrupting data bio=%p by writing %u to byte %u "
 			"(rw=%c bi_rw=%lu bi_sector=%llu cur_bytes=%u)\n",
 			bio, fc->corrupt_bio_value, fc->corrupt_bio_byte,
-			(bio_data_dir(bio) == WRITE) ? 'w' : 'r', bio->bi_rw,
-			(unsigned long long)bio->bi_iter.bi_sector, bio_bytes);
+			(bio_data_dir(bio) == WRITE) ? 'w' : 'r',
+			bio->bi_rw, (unsigned long long)bio->bi_sector, bio_bytes);
 	}
 }
 
@@ -287,14 +286,10 @@ static int flakey_map(struct dm_target *ti, struct bio *bio)
 		pb->bio_submitted = true;
 
 		/*
-		 * Error reads if neither corrupt_bio_byte or drop_writes are set.
-		 * Otherwise, flakey_end_io() will decide if the reads should be modified.
+		 * Map reads as normal.
 		 */
-		if (bio_data_dir(bio) == READ) {
-			if (!fc->corrupt_bio_byte && !test_bit(DROP_WRITES, &fc->flags))
-				return -EIO;
+		if (bio_data_dir(bio) == READ)
 			goto map_bio;
-		}
 
 		/*
 		 * Drop writes?
@@ -330,22 +325,14 @@ static int flakey_end_io(struct dm_target *ti, struct bio *bio, int error)
 	struct flakey_c *fc = ti->private;
 	struct per_bio_data *pb = dm_per_bio_data(bio, sizeof(struct per_bio_data));
 
-	if (!error && pb->bio_submitted && (bio_data_dir(bio) == READ)) {
-		if (fc->corrupt_bio_byte && (fc->corrupt_bio_rw == READ) &&
-		    all_corrupt_bio_flags_match(bio, fc)) {
-			/*
-			 * Corrupt successful matching READs while in down state.
-			 */
-			corrupt_bio_data(bio, fc);
-
-		} else if (!test_bit(DROP_WRITES, &fc->flags)) {
-			/*
-			 * Error read during the down_interval if drop_writes
-			 * wasn't configured.
-			 */
-			return -EIO;
-		}
-	}
+	/*
+	 * Corrupt successful READs while in down state.
+	 * If flags were specified, only corrupt those that match.
+	 */
+	if (fc->corrupt_bio_byte && !error && pb->bio_submitted &&
+	    (bio_data_dir(bio) == READ) && (fc->corrupt_bio_rw == READ) &&
+	    all_corrupt_bio_flags_match(bio, fc))
+		corrupt_bio_data(bio, fc);
 
 	return error;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, 2016-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,7 +15,6 @@
  */
 
 #include <linux/types.h>
-#include <linux/time.h>
 #include <linux/spinlock.h>
 
 #ifndef _RMNET_DATA_CONFIG_H_
@@ -38,7 +37,6 @@ struct rmnet_logical_ep_conf_s {
 	uint8_t refcount;
 	uint8_t rmnet_mode;
 	uint8_t mux_id;
-	struct timespec flush_time;
 	struct net_device *egress_dev;
 };
 
@@ -59,8 +57,6 @@ struct rmnet_logical_ep_conf_s {
  *                  Smaller of the two parameters above are chosen for
  *                  aggregation
  * @tail_spacing: Guaranteed padding (bytes) when de-aggregating ingress frames
- * @agg_time: Wall clock time when aggregated frame was created
- * @agg_last: Last time the aggregation routing was invoked
  */
 struct rmnet_phys_ep_conf_s {
 	struct net_device *dev;
@@ -72,17 +68,11 @@ struct rmnet_phys_ep_conf_s {
 	/* MAP specific */
 	uint16_t egress_agg_size;
 	uint16_t egress_agg_count;
-	uint8_t tail_spacing;
-	/* MAP aggregation state machine
-	 *  - This is not sctrictly configuration and is updated at runtime
-	 *    Make sure all of these are protected by the agg_lock
-	 */
 	spinlock_t agg_lock;
 	struct sk_buff *agg_skb;
 	uint8_t agg_state;
 	uint8_t agg_count;
-	struct timespec agg_time;
-	struct timespec agg_last;
+	uint8_t tail_spacing;
 };
 
 int rmnet_config_init(void);
@@ -121,7 +111,6 @@ int rmnet_config_notify_cb(struct notifier_block *nb,
 				  unsigned long event, void *data);
 int rmnet_create_vnd(int id);
 int rmnet_create_vnd_prefix(int id, const char *name);
-int rmnet_create_vnd_name(int id, const char *name);
 int rmnet_free_vnd(int id);
 
 #endif /* _RMNET_DATA_CONFIG_H_ */

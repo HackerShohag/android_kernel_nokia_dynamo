@@ -38,9 +38,7 @@ Optional properties:
 - List of sub nodes, one for each of the translation context banks supported.
   Each sub node has the following required properties:
 
-  - compatible : one of:
-	- "qcom,msm-smmu-v1-ctx"
-	- "qcom,msm-smmu-v2-ctx"
+  - compatible : "qcom,msm-smmu-v1-ctx"
   - reg : offset and length of the register set for the context bank.
   - interrupts : should contain the context bank interrupt. If this is
     a secure context bank, this should be a list of 2 3-tuples where
@@ -77,11 +75,6 @@ Optional properties:
   the Stream Mapping Table entries.
 - qcom,report-error-on-fault : boolean indicating that when any fault
   occurs in this context bank, an error will be sent to respective master
-- qcom,prefetch-depth: Defines a custom pre-fetch depth for the CB.
-	0x0 : No additional prefetch. N = 0
-	0x1 : N = 4
-	0x2 : N = 8
-	0x3 : N = 16
 
 Example:
 

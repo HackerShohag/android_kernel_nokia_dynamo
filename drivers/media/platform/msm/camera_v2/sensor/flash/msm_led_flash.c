@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,7 +16,7 @@
 #include "msm_led_flash.h"
 
 #undef CDBG
-#define CDBG(fmt, args...) pr_err(fmt, ##args)
+#define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
 static struct v4l2_file_operations msm_led_flash_v4l2_subdev_fops;
 
@@ -24,8 +24,7 @@ static long msm_led_flash_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
 	struct msm_led_flash_ctrl_t *fctrl = NULL;
-	void *argp = (void *)arg;
-
+	void __user *argp = (void __user *)arg;
 	if (!sd) {
 		pr_err("sd NULL\n");
 		return -EINVAL;
@@ -37,25 +36,14 @@ static long msm_led_flash_subdev_ioctl(struct v4l2_subdev *sd,
 	}
 	switch (cmd) {
 	case VIDIOC_MSM_SENSOR_GET_SUBDEV_ID:
-                if (fctrl->func_tbl->flash_get_subdev_id)
-			return fctrl->func_tbl->flash_get_subdev_id(fctrl, argp);
-		else
-			pr_err("NULL flash_get_subdev function\n");
-			return -EINVAL;
+		return fctrl->func_tbl->flash_get_subdev_id(fctrl, argp);
 	case VIDIOC_MSM_FLASH_LED_DATA_CFG:
-                if (fctrl->func_tbl->flash_led_config)
-			return fctrl->func_tbl->flash_led_config(fctrl, argp);
-		else
-			pr_err("NULL flash_led_config function\n");
-			return -EINVAL;
+		return fctrl->func_tbl->flash_led_config(fctrl, argp);
 	case MSM_SD_NOTIFY_FREEZE:
 		return 0;
 	case MSM_SD_SHUTDOWN:
-                if (fctrl->func_tbl->flash_led_release)
-			return fctrl->func_tbl->flash_led_release(fctrl);
-		else
-			pr_err("NULL flash_led_release function\n");
-			return -EINVAL;
+		*(int *)argp = MSM_CAMERA_LED_RELEASE;
+		return fctrl->func_tbl->flash_led_config(fctrl, argp);
 	default:
 		pr_err_ratelimited("invalid cmd %d\n", cmd);
 		return -ENOIOCTLCMD;

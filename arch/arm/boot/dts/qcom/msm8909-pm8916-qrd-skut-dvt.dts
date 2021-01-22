@@ -41,8 +41,8 @@
 
 			qcom,disable-apsd;
 			qcom,bms-psy-name = "bms";
-			qcom,bms-controlled-charging;
 			qcom,iterm-disabled;
+			qcom,bms-controlled-charging;
 			qcom,chg-inhibit-disabled;
 			qcom,chg-vadc = <&pm8916_vadc>;
 			qcom,chg-adc_tm = <&pm8916_adc_tm>;

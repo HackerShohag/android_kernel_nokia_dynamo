@@ -1,4 +1,4 @@
-/* Copyright (c) 2014, 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,7 +12,6 @@
 #ifndef __ESOC_CLIENT_H_
 #define __ESOC_CLIENT_H_
 
-#include <linux/device.h>
 #include <linux/esoc_ctrl.h>
 #include <linux/notifier.h>
 
@@ -24,7 +23,6 @@
 struct esoc_desc {
 	const char *name;
 	const char *link;
-	const char *link_info;
 	void *priv;
 };
 

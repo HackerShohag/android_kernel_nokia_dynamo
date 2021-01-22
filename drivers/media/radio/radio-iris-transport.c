@@ -1,7 +1,7 @@
 /*
- *  QTI's FM Shared Memory Transport Driver
+ *  Qualcomm's FM Shared Memory Transport Driver
  *
- *  FM HCI_SMD ( FM HCI Shared Memory Driver) is QTI's Shared memory driver
+ *  FM HCI_SMD ( FM HCI Shared Memory Driver) is Qualcomm's Shared memory driver
  *  for the HCI protocol. This file is based on drivers/bluetooth/hci_vhci.c
  *
  *  Copyright (c) 2000-2001, 2011-2012, 2014-2015 The Linux Foundation.
@@ -61,8 +61,6 @@ static void radio_hci_smd_recv_event(unsigned long temp)
 	struct sk_buff *skb;
 	unsigned  char *buf;
 	struct radio_data *hsmd = &hs;
-	FMDBG("");
-
 	len = smd_read_avail(hsmd->fm_channel);
 
 	while (len) {
@@ -96,7 +94,6 @@ static void radio_hci_smd_recv_event(unsigned long temp)
 static int radio_hci_smd_send_frame(struct sk_buff *skb)
 {
 	int len = 0;
-	FMDBG("skb %pK", skb);
 
 	len = smd_write(hs.fm_channel, skb->data, skb->len);
 	if (len < skb->len) {
@@ -135,8 +132,7 @@ static void send_disable_event(struct work_struct *worker)
 
 static void radio_hci_smd_notify_cmd(void *data, unsigned int event)
 {
-	struct radio_hci_dev *hdev = (struct radio_hci_dev *)data;
-	FMDBG("data %p event %u", data, event);
+	struct radio_hci_dev *hdev = hs.hdev;
 
 	if (!hdev) {
 		FMDERR("Frame for unknown HCI device (hdev=NULL)");
@@ -167,8 +163,7 @@ static int radio_hci_smd_register_dev(struct radio_data *hsmd)
 {
 	struct radio_hci_dev *hdev;
 	int rc;
-	int rty_count=0; /* 20150602 add for fm radio retry*/
-	FMDBG("hsmd: %pK", hsmd);
+	int rty_count=0; /*@20150602 add for fm radio retry*/
 
 	if (hsmd == NULL)
 		return -ENODEV;
@@ -219,8 +214,6 @@ static int radio_hci_smd_register_dev(struct radio_data *hsmd)
 
 static void radio_hci_smd_deregister(void)
 {
-	FMDBG("");
-
 	radio_hci_unregister_dev();
 	kfree(hs.hdev);
 	hs.hdev = NULL;
@@ -265,7 +258,6 @@ static void radio_hci_smd_exit(void)
 static int hcismd_fm_set_enable(const char *val, struct kernel_param *kp)
 {
 	int ret = 0;
-
 	mutex_lock(&fm_smd_enable);
 	ret = param_set_int(val, kp);
 	if (ret)
@@ -286,4 +278,5 @@ done:
 	return ret;
 }
 MODULE_DESCRIPTION("FM SMD driver");
+MODULE_AUTHOR("Ankur Nandwani <ankurn@codeaurora.org>");
 MODULE_LICENSE("GPL v2");

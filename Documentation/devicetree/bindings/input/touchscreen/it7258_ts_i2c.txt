@@ -48,8 +48,8 @@ Optional properties:
  - ite,avdd-lpm-cur	: avdd lpm current value(mA) in suspend state.
 
 Required properties palm-detect-en feature:
- - ite,palm-detect-keycode	: The keycode that is required to be sent when
-			  palm is detected by the ITE tech driver.
+ - ite,palm-detect-keycode	: The keycode need to be sent when palm is
+			  detected by the ITE tech driver.
 
 Example:
 	i2c@f9927000 {

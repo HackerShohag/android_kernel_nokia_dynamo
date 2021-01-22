@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,9 +35,6 @@ static u32 panel_refresh_rate;
 
 static int (*qpic_panel_on)(struct qpic_panel_io_desc *qpic_panel_io);
 static void (*qpic_panel_off)(struct qpic_panel_io_desc *qpic_panel_io);
-
-static int mdss_qpic_pinctrl_init(struct platform_device *pdev,
-		struct qpic_panel_io_desc *qpic_panel_io);
 
 u32 qpic_panel_get_framerate(void)
 {
@@ -102,30 +99,6 @@ u32 qpic_send_frame(u32 x_start,
 	return 0;
 }
 
-static int mdss_qpic_pinctrl_init(struct platform_device *pdev,
-		struct qpic_panel_io_desc *qpic_panel_io)
-{
-	qpic_panel_io->pin_res.pinctrl = devm_pinctrl_get(&pdev->dev);
-	if (IS_ERR_OR_NULL(qpic_panel_io->pin_res.pinctrl)) {
-		pr_err("%s: failed to get pinctrl\n", __func__);
-		return PTR_ERR(qpic_panel_io->pin_res.pinctrl);
-	}
-
-	qpic_panel_io->pin_res.gpio_state_active
-		= pinctrl_lookup_state(qpic_panel_io->pin_res.pinctrl,
-				MDSS_PINCTRL_STATE_DEFAULT);
-	if (IS_ERR_OR_NULL(qpic_panel_io->pin_res.gpio_state_active))
-		pr_warn("%s: cannot get default pinstate\n", __func__);
-
-	qpic_panel_io->pin_res.gpio_state_suspend
-		= pinctrl_lookup_state(qpic_panel_io->pin_res.pinctrl,
-				MDSS_PINCTRL_STATE_SLEEP);
-	if (IS_ERR_OR_NULL(qpic_panel_io->pin_res.gpio_state_suspend))
-		pr_warn("%s: cannot get sleep pinstate\n", __func__);
-
-	return 0;
-}
-
 int mdss_qpic_panel_on(struct mdss_panel_data *pdata,
 	struct qpic_panel_io_desc *panel_io)
 {
@@ -152,18 +125,14 @@ int mdss_qpic_panel_off(struct mdss_panel_data *pdata,
 	return 0;
 }
 
+
 int mdss_qpic_panel_io_init(struct platform_device *pdev,
 	struct qpic_panel_io_desc *qpic_panel_io)
 {
-	int rc = 0;
 	struct device_node *np = pdev->dev.of_node;
 	int rst_gpio, cs_gpio, te_gpio, ad8_gpio, bl_gpio;
 	struct regulator *vdd_vreg;
 	struct regulator *avdd_vreg;
-
-	rc = mdss_qpic_pinctrl_init(pdev, qpic_panel_io);
-	if (rc)
-		pr_warn("%s: failed to get pin resources\n", __func__);
 
 	rst_gpio = of_get_named_gpio(np, "qcom,rst-gpio", 0);
 	cs_gpio = of_get_named_gpio(np, "qcom,cs-gpio", 0);
@@ -172,27 +141,27 @@ int mdss_qpic_panel_io_init(struct platform_device *pdev,
 	bl_gpio = of_get_named_gpio(np, "qcom,bl-gpio", 0);
 
 	if (!gpio_is_valid(rst_gpio))
-		pr_warn("%s: reset gpio not specified\n" , __func__);
+		pr_err("%s: reset gpio not specified\n" , __func__);
 	else
 		qpic_panel_io->rst_gpio = rst_gpio;
 
 	if (!gpio_is_valid(cs_gpio))
-		pr_warn("%s: cs gpio not specified\n", __func__);
+		pr_err("%s: cs gpio not specified\n", __func__);
 	else
 		qpic_panel_io->cs_gpio = cs_gpio;
 
 	if (!gpio_is_valid(ad8_gpio))
-		pr_warn("%s: ad8 gpio not specified\n", __func__);
+		pr_err("%s: ad8 gpio not specified\n", __func__);
 	else
 		qpic_panel_io->ad8_gpio = ad8_gpio;
 
 	if (!gpio_is_valid(te_gpio))
-		pr_warn("%s: te gpio not specified\n", __func__);
+		pr_err("%s: te gpio not specified\n", __func__);
 	else
 		qpic_panel_io->te_gpio = te_gpio;
 
 	if (!gpio_is_valid(bl_gpio))
-		pr_warn("%s: te gpio not specified\n", __func__);
+		pr_err("%s: te gpio not specified\n", __func__);
 	else
 		qpic_panel_io->bl_gpio = bl_gpio;
 
@@ -224,18 +193,15 @@ static int mdss_panel_parse_dt(struct platform_device *pdev,
 						__func__, __LINE__);
 		return -EINVAL;
 	}
-
-	pr_debug("panel res %d %d\n", res[0], res[1]);
-	panel_data->panel_info.xres = (!rc ? res[0] : 320);
-	panel_data->panel_info.yres = (!rc ? res[1] : 480);
+	panel_data->panel_info.xres = (!rc ? res[0] : 240);
+	panel_data->panel_info.yres = (!rc ? res[1] : 320);
 	rc = of_property_read_u32(np, "qcom,mdss-pan-bpp", &tmp);
 	if (rc) {
 		pr_err("%s:%d, panel bpp not specified\n",
 						__func__, __LINE__);
 		return -EINVAL;
 	}
-	pr_debug("panel bpp %d\n", tmp);
-	panel_data->panel_info.bpp = (!rc ? tmp : 18);
+	panel_data->panel_info.bpp = (!rc ? tmp : 24);
 	of_property_read_u32(np, "qcom,refresh_rate", &panel_refresh_rate);
 
 	panel_data->panel_info.type = EBI2_PANEL;
@@ -276,6 +242,10 @@ static int mdss_qpic_panel_probe(struct platform_device *pdev)
 		qpic_panel_off = ili9341_off;
 	}
 
+	if (qpic_panel_on == ili9341_on) {
+		vendor_pdata.panel_info.xres = 240;
+		vendor_pdata.panel_info.yres = 320;
+	}
 
 	rc = qpic_register_panel(&vendor_pdata);
 	if (rc)

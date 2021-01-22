@@ -279,7 +279,7 @@ ENTRY(\name\()_processor_functions)
 
 	.if \suspend
 	.word	cpu_\name\()_suspend_size
-#ifdef CONFIG_ARM_CPU_SUSPEND
+#ifdef CONFIG_PM_SLEEP
 	.word	cpu_\name\()_do_suspend
 	.word	cpu_\name\()_do_resume
 #else
@@ -332,8 +332,4 @@ ENTRY(\name\()_tlb_fns)
 .macro globl_equ x, y
 	.globl	\x
 	.equ	\x, \y
-.endm
-
-.macro	initfn, func, base
-	.long	\func - \base
 .endm

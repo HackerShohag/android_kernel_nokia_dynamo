@@ -86,6 +86,8 @@ int __ipoib_vlan_add(struct ipoib_dev_priv *ppriv, struct ipoib_dev_priv *priv,
 
 	priv->parent = ppriv->dev;
 
+	ipoib_create_debug_files(priv->dev);
+
 	/* RTNL childs don't need proprietary sysfs entries */
 	if (type == IPOIB_LEGACY_CHILD) {
 		if (ipoib_cm_add_mode_attr(priv->dev))
@@ -107,6 +109,7 @@ int __ipoib_vlan_add(struct ipoib_dev_priv *ppriv, struct ipoib_dev_priv *priv,
 
 sysfs_failed:
 	result = -ENOMEM;
+	ipoib_delete_debug_files(priv->dev);
 	unregister_netdevice(priv->dev);
 
 register_failed:
@@ -137,7 +140,7 @@ int ipoib_vlan_add(struct net_device *pdev, unsigned short pkey)
 	if (!rtnl_trylock())
 		return restart_syscall();
 
-	down_write(&ppriv->vlan_rwsem);
+	mutex_lock(&ppriv->vlan_mutex);
 
 	/*
 	 * First ensure this isn't a duplicate. We check the parent device and
@@ -160,7 +163,7 @@ int ipoib_vlan_add(struct net_device *pdev, unsigned short pkey)
 	result = __ipoib_vlan_add(ppriv, priv, pkey, IPOIB_LEGACY_CHILD);
 
 out:
-	up_write(&ppriv->vlan_rwsem);
+	mutex_unlock(&ppriv->vlan_mutex);
 
 	if (result)
 		free_netdev(priv->dev);
@@ -182,8 +185,7 @@ int ipoib_vlan_delete(struct net_device *pdev, unsigned short pkey)
 
 	if (!rtnl_trylock())
 		return restart_syscall();
-
-	down_write(&ppriv->vlan_rwsem);
+	mutex_lock(&ppriv->vlan_mutex);
 	list_for_each_entry_safe(priv, tpriv, &ppriv->child_intfs, list) {
 		if (priv->pkey == pkey &&
 		    priv->child_type == IPOIB_LEGACY_CHILD) {
@@ -193,8 +195,7 @@ int ipoib_vlan_delete(struct net_device *pdev, unsigned short pkey)
 			break;
 		}
 	}
-	up_write(&ppriv->vlan_rwsem);
-
+	mutex_unlock(&ppriv->vlan_mutex);
 	rtnl_unlock();
 
 	if (dev) {

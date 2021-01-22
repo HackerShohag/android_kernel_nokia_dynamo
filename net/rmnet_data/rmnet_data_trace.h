@@ -306,24 +306,6 @@ DEFINE_EVENT(rmnet_physdev_action_template, rmnet_unassociate,
 
 	TP_ARGS(dev)
 );
-
-TRACE_EVENT(rmnet_gro_downlink,
-
-	TP_PROTO(gro_result_t gro_res),
-
-	TP_ARGS(gro_res),
-
-	TP_STRUCT__entry(
-		__field(gro_result_t, res)
-	),
-
-	TP_fast_assign(
-		__entry->res = gro_res;
-	),
-
-	TP_printk("GRO res: %d", __entry->res)
-)
-
 #endif /* _RMNET_DATA_TRACE_H_ */
 
 /* This part must be outside protection */

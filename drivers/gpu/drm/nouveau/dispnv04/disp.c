@@ -22,6 +22,9 @@
  * Author: Ben Skeggs
  */
 
+#include <core/object.h>
+#include <core/class.h>
+
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 
@@ -31,11 +34,31 @@
 #include "nouveau_encoder.h"
 #include "nouveau_connector.h"
 
+#include <subdev/i2c.h>
+
+int
+nv04_display_early_init(struct drm_device *dev)
+{
+	/* ensure vblank interrupts are off, they can't be enabled until
+	 * drm_vblank has been initialised
+	 */
+	NVWriteCRTC(dev, 0, NV_PCRTC_INTR_EN_0, 0);
+	if (nv_two_heads(dev))
+		NVWriteCRTC(dev, 1, NV_PCRTC_INTR_EN_0, 0);
+
+	return 0;
+}
+
+void
+nv04_display_late_takedown(struct drm_device *dev)
+{
+}
+
 int
 nv04_display_create(struct drm_device *dev)
 {
 	struct nouveau_drm *drm = nouveau_drm(dev);
-	struct nvkm_i2c *i2c = nvxx_i2c(&drm->device);
+	struct nouveau_i2c *i2c = nouveau_i2c(drm->device);
 	struct dcb_table *dcb = &drm->vbios.dcb;
 	struct drm_connector *connector, *ct;
 	struct drm_encoder *encoder;
@@ -47,14 +70,17 @@ nv04_display_create(struct drm_device *dev)
 	if (!disp)
 		return -ENOMEM;
 
-	nvif_object_map(&drm->device.object);
-
 	nouveau_display(dev)->priv = disp;
 	nouveau_display(dev)->dtor = nv04_display_destroy;
 	nouveau_display(dev)->init = nv04_display_init;
 	nouveau_display(dev)->fini = nv04_display_fini;
 
 	nouveau_hw_save_vga_fonts(dev, 1);
+
+	ret = nouveau_object_new(nv_object(drm), NVDRM_DEVICE, 0xd1500000,
+				 NV04_DISP_CLASS, NULL, 0, &disp->core);
+	if (ret)
+		return ret;
 
 	nv04_crtc_create(dev, 0);
 	if (nv_two_heads(dev))
@@ -94,16 +120,14 @@ nv04_display_create(struct drm_device *dev)
 				 &dev->mode_config.connector_list, head) {
 		if (!connector->encoder_ids[0]) {
 			NV_WARN(drm, "%s has no encoders, removing\n",
-				connector->name);
+				drm_get_connector_name(connector));
 			connector->funcs->destroy(connector);
 		}
 	}
 
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		struct nouveau_encoder *nv_encoder = nouveau_encoder(encoder);
-		struct nvkm_i2c_bus *bus =
-			nvkm_i2c_bus_find(i2c, nv_encoder->dcb->i2c_index);
-		nv_encoder->i2c = bus ? &bus->i2c : NULL;
+		nv_encoder->i2c = i2c->find(i2c, nv_encoder->dcb->i2c_index);
 	}
 
 	/* Save previous state */
@@ -111,12 +135,10 @@ nv04_display_create(struct drm_device *dev)
 		crtc->funcs->save(crtc);
 
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
-		const struct drm_encoder_helper_funcs *func = encoder->helper_private;
+		struct drm_encoder_helper_funcs *func = encoder->helper_private;
 
 		func->save(encoder);
 	}
-
-	nouveau_overlay_init(dev);
 
 	return 0;
 }
@@ -125,7 +147,6 @@ void
 nv04_display_destroy(struct drm_device *dev)
 {
 	struct nv04_display *disp = nv04_display(dev);
-	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct drm_encoder *encoder;
 	struct drm_crtc *crtc;
 
@@ -140,7 +161,7 @@ nv04_display_destroy(struct drm_device *dev)
 
 	/* Restore state */
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
-		const struct drm_encoder_helper_funcs *func = encoder->helper_private;
+		struct drm_encoder_helper_funcs *func = encoder->helper_private;
 
 		func->restore(encoder);
 	}
@@ -152,8 +173,6 @@ nv04_display_destroy(struct drm_device *dev)
 
 	nouveau_display(dev)->priv = NULL;
 	kfree(disp);
-
-	nvif_object_unmap(&drm->device.object);
 }
 
 int
@@ -171,7 +190,7 @@ nv04_display_init(struct drm_device *dev)
 	 * on suspend too.
 	 */
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
-		const struct drm_encoder_helper_funcs *func = encoder->helper_private;
+		struct drm_encoder_helper_funcs *func = encoder->helper_private;
 
 		func->restore(encoder);
 	}

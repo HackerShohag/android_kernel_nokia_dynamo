@@ -1,7 +1,7 @@
 /*
  * apds993x.c - Linux kernel modules for ambient light + proximity sensor
  *
- * Copyright (c) 2015, 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  * Copyright (C) 2012 Lee Kai Koon <kai-koon.lee@avagotech.com>
  * Copyright (C) 2012 Avago Technologies
  * Copyright (C) 2013 LGE Inc.
@@ -17,7 +17,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/module.h>
@@ -50,17 +51,17 @@
 
 #define APDS993X_ALS_THRESHOLD_HSYTERESIS	20	/* % */
 
-#define APDS993X_GA		48	/* 0.48 without glass window */
-#define APDS993X_COE_B		223	/* 2.23 without glass window */
-#define APDS993X_COE_C		70	/* 0.70 without glass window */
-#define APDS993X_COE_D		142	/* 1.42 without glass window */
-#define APDS993X_DF		52
-#define ALS_MAX_RANGE		60000
+#define APDS993X_GA	48	/* 0.48 without glass window */
+#define APDS993X_COE_B	223	/* 2.23 without glass window */
+#define APDS993X_COE_C	70	/* 0.70 without glass window */
+#define APDS993X_COE_D	142	/* 1.42 without glass window */
+#define APDS993X_DF	52
+#define ALS_MAX_RANGE	60000
 
-#define APDS_CAL_SKIP_COUNT	5
-#define APDS_MAX_CAL		(10 + APDS_CAL_SKIP_COUNT)
-#define CAL_NUM			99
-#define CALIBRATE_PS_DELAY	6000	/* us */
+#define APDS_CAL_SKIP_COUNT     5
+#define APDS_MAX_CAL	(10 + APDS_CAL_SKIP_COUNT)
+#define CAL_NUM		99
+#define CALIBRATE_PS_DELAY	6000 /* us */
 
 /* Change History
  *
@@ -120,119 +121,91 @@
 
 
 /* Register Value define : ATIME */
-#define APDS993X_100MS_ADC_TIME	0xDB	/* 100.64ms integration time */
-#define APDS993X_50MS_ADC_TIME	0xED	/* 51.68ms integration time */
-#define APDS993X_27MS_ADC_TIME	0xF6	/* 27.2ms integration time */
+#define APDS993X_100MS_ADC_TIME	0xDB  /* 100.64ms integration time */
+#define APDS993X_50MS_ADC_TIME	0xED  /* 51.68ms integration time */
+#define APDS993X_27MS_ADC_TIME	0xF6  /* 27.2ms integration time */
 
 /* Register Value define : PRXCNFG */
-#define APDS993X_ALS_REDUCE	0x04	/* ALSREDUCE-ALS Gain reduced by 4x */
+#define APDS993X_ALS_REDUCE	0x04  /* ALSREDUCE - ALS Gain reduced by 4x */
 
 /* Register Value define : PERS */
-#define APDS993X_PPERS_0	0x00	/* Every proximity ADC cycle */
-#define APDS993X_PPERS_1	0x10	/* 1 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_2	0x20	/* 2 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_3	0x30	/* 3 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_4	0x40	/* 4 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_5	0x50	/* 5 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_6	0x60	/* 6 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_7	0x70	/* 7 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_8	0x80	/* 8 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_9	0x90	/* 9 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_10	0xA0	/* 10 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_11	0xB0	/* 11 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_12	0xC0	/* 12 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_13	0xD0	/* 13 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_14	0xE0	/* 14 consecutive proximity value out
-					 * of range */
-#define APDS993X_PPERS_15	0xF0	/* 15 consecutive proximity value out
-					 * of range */
+#define APDS993X_PPERS_0	0x00  /* Every proximity ADC cycle */
+#define APDS993X_PPERS_1	0x10  /* 1 consecutive proximity value out of range */
+#define APDS993X_PPERS_2	0x20  /* 2 consecutive proximity value out of range */
+#define APDS993X_PPERS_3	0x30  /* 3 consecutive proximity value out of range */
+#define APDS993X_PPERS_4	0x40  /* 4 consecutive proximity value out of range */
+#define APDS993X_PPERS_5	0x50  /* 5 consecutive proximity value out of range */
+#define APDS993X_PPERS_6	0x60  /* 6 consecutive proximity value out of range */
+#define APDS993X_PPERS_7	0x70  /* 7 consecutive proximity value out of range */
+#define APDS993X_PPERS_8	0x80  /* 8 consecutive proximity value out of range */
+#define APDS993X_PPERS_9	0x90  /* 9 consecutive proximity value out of range */
+#define APDS993X_PPERS_10	0xA0  /* 10 consecutive proximity value out of range */
+#define APDS993X_PPERS_11	0xB0  /* 11 consecutive proximity value out of range */
+#define APDS993X_PPERS_12	0xC0  /* 12 consecutive proximity value out of range */
+#define APDS993X_PPERS_13	0xD0  /* 13 consecutive proximity value out of range */
+#define APDS993X_PPERS_14	0xE0  /* 14 consecutive proximity value out of range */
+#define APDS993X_PPERS_15	0xF0  /* 15 consecutive proximity value out of range */
 
-#define APDS993X_APERS_0	0x00	/* Every ADC cycle */
-#define APDS993X_APERS_1	0x01	/* 1 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_2	0x02	/* 2 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_3	0x03	/* 3 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_5	0x04	/* 5 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_10	0x05	/* 10 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_15	0x06	/* 15 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_20	0x07	/* 20 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_25	0x08	/* 25 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_30	0x09	/* 30 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_35	0x0A	/* 35 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_40	0x0B	/* 40 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_45	0x0C	/* 45 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_50	0x0D	/* 50 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_55	0x0E	/* 55 consecutive proximity value out
-					 * of range */
-#define APDS993X_APERS_60	0x0F	/* 60 consecutive proximity value out
-					 * of range */
+#define APDS993X_APERS_0	0x00  /* Every ADC cycle */
+#define APDS993X_APERS_1	0x01  /* 1 consecutive proximity value out of range */
+#define APDS993X_APERS_2	0x02  /* 2 consecutive proximity value out of range */
+#define APDS993X_APERS_3	0x03  /* 3 consecutive proximity value out of range */
+#define APDS993X_APERS_5	0x04  /* 5 consecutive proximity value out of range */
+#define APDS993X_APERS_10	0x05  /* 10 consecutive proximity value out of range */
+#define APDS993X_APERS_15	0x06  /* 15 consecutive proximity value out of range */
+#define APDS993X_APERS_20	0x07  /* 20 consecutive proximity value out of range */
+#define APDS993X_APERS_25	0x08  /* 25 consecutive proximity value out of range */
+#define APDS993X_APERS_30	0x09  /* 30 consecutive proximity value out of range */
+#define APDS993X_APERS_35	0x0A  /* 35 consecutive proximity value out of range */
+#define APDS993X_APERS_40	0x0B  /* 40 consecutive proximity value out of range */
+#define APDS993X_APERS_45	0x0C  /* 45 consecutive proximity value out of range */
+#define APDS993X_APERS_50	0x0D  /* 50 consecutive proximity value out of range */
+#define APDS993X_APERS_55	0x0E  /* 55 consecutive proximity value out of range */
+#define APDS993X_APERS_60	0x0F  /* 60 consecutive proximity value out of range */
 
 /* Register Value define : CONTROL */
-#define APDS993X_AGAIN_1X	0x00	/* 1X ALS GAIN */
-#define APDS993X_AGAIN_8X	0x01	/* 8X ALS GAIN */
-#define APDS993X_AGAIN_16X	0x02	/* 16X ALS GAIN */
-#define APDS993X_AGAIN_120X	0x03	/* 120X ALS GAIN */
+#define APDS993X_AGAIN_1X	0x00  /* 1X ALS GAIN */
+#define APDS993X_AGAIN_8X	0x01  /* 8X ALS GAIN */
+#define APDS993X_AGAIN_16X	0x02  /* 16X ALS GAIN */
+#define APDS993X_AGAIN_120X	0x03  /* 120X ALS GAIN */
 
-#define APDS993X_PRX_IR_DIOD	0x20	/* Proximity uses CH1 diode */
+#define APDS993X_PRX_IR_DIOD	0x20  /* Proximity uses CH1 diode */
 
-#define APDS993X_PGAIN_1X	0x00	/* PS GAIN 1X */
-#define APDS993X_PGAIN_2X	0x04	/* PS GAIN 2X */
-#define APDS993X_PGAIN_4X	0x08	/* PS GAIN 4X */
-#define APDS993X_PGAIN_8X	0x0C	/* PS GAIN 8X */
+#define APDS993X_PGAIN_1X	0x00  /* PS GAIN 1X */
+#define APDS993X_PGAIN_2X	0x04  /* PS GAIN 2X */
+#define APDS993X_PGAIN_4X	0x08  /* PS GAIN 4X */
+#define APDS993X_PGAIN_8X	0x0C  /* PS GAIN 8X */
 
-#define APDS993X_PDRVIE_100MA	0x00	/* PS 100mA LED drive */
-#define APDS993X_PDRVIE_50MA	0x40	/* PS 50mA LED drive */
-#define APDS993X_PDRVIE_25MA	0x80	/* PS 25mA LED drive */
-#define APDS993X_PDRVIE_12_5MA	0xC0	/* PS 12.5mA LED drive */
+#define APDS993X_PDRVIE_100MA	0x00  /* PS 100mA LED drive */
+#define APDS993X_PDRVIE_50MA	0x40  /* PS 50mA LED drive */
+#define APDS993X_PDRVIE_25MA	0x80  /* PS 25mA LED drive */
+#define APDS993X_PDRVIE_12_5MA	0xC0  /* PS 12.5mA LED drive */
 
-/* Calibration */
+/*calibration*/
 #define DEFAULT_CROSS_TALK	100
 #define ADD_TO_CROSS_TALK	300
 #define SUB_FROM_PS_THRESHOLD	100
 
-/* PS tuning value */
-static int apds993x_ps_detection_threshold;
-static int apds993x_ps_hsyteresis_threshold;
-static int apds993x_ps_pulse_number;
-static int apds993x_ps_pgain;
+/*PS tuning value*/
+static int apds993x_ps_detection_threshold = 0;
+static int apds993x_ps_hsyteresis_threshold = 0;
+static int apds993x_ps_pulse_number = 0;
+static int apds993x_ps_pgain = 0;
 
-enum apds993x_als_res_e {
+typedef enum
+{
 	APDS993X_ALS_RES_10240 = 0,    /* 27.2ms integration time */
 	APDS993X_ALS_RES_19456 = 1,    /* 51.68ms integration time */
 	APDS993X_ALS_RES_37888 = 2     /* 100.64ms integration time */
-};
+} apds993x_als_res_e;
 
-enum apds993x_als_gain_e {
+typedef enum
+{
 	APDS993X_ALS_GAIN_1X    = 0,    /* 1x AGAIN */
 	APDS993X_ALS_GAIN_8X    = 1,    /* 8x AGAIN */
 	APDS993X_ALS_GAIN_16X   = 2,    /* 16x AGAIN */
 	APDS993X_ALS_GAIN_120X  = 3     /* 120x AGAIN */
-};
+} apds993x_als_gain_e;
 
 /*
  * Structs
@@ -241,8 +214,8 @@ struct apds993x_data {
 	struct i2c_client *client;
 	struct mutex update_lock;
 	struct mutex op_mutex;
-	struct delayed_work dwork;	/* for PS interrupt */
-	struct delayed_work als_dwork;	/* for ALS polling */
+	struct delayed_work	dwork;		/* for PS interrupt */
+	struct delayed_work	als_dwork;	/* for ALS polling */
 	struct input_dev *input_dev_als;
 	struct input_dev *input_dev_ps;
 	struct sensors_classdev als_cdev;
@@ -284,13 +257,11 @@ struct apds993x_data {
 
 	/* PS parameters */
 	unsigned int ps_threshold;
-	unsigned int ps_hysteresis_threshold;	/* always lower than
-						 * ps_threshold */
-	unsigned int ps_detection;		/* 5 = near-to-far
-						 * 0 = far-to-near */
+	unsigned int ps_hysteresis_threshold; 	/* always lower than ps_threshold */
+	unsigned int ps_detection;		/* 5 = near-to-far; 0 = far-to-near */
 	unsigned int ps_data;			/* to store PS data */
 
-	/* calibration */
+	/*calibration*/
 	unsigned int cross_talk;		/* cross_talk value */
 	unsigned int avg_cross_talk;		/* average cross_talk  */
 	unsigned int ps_cal_result;		/* result of calibration*/
@@ -308,8 +279,7 @@ struct apds993x_data {
 	int als_prev_lux;		/* to store previous lux value */
 
 	unsigned int als_gain;		/* needed for Lux calculation */
-	unsigned int als_poll_delay;	/* needed for light sensor polling :
-					 * micro-second (us) */
+	unsigned int als_poll_delay;	/* needed for light sensor polling : micro-second (us) */
 	unsigned int als_atime_index;	/* storage for als integratiion time */
 	unsigned int als_again_index;	/* storage for als GAIN */
 	unsigned int als_reduce;	/* flag indicate ALS 6x reduction */
@@ -364,11 +334,11 @@ static struct sensors_classdev sensors_proximity_cdev = {
 /*
  * Global data
  */
-static struct apds993x_data *pdev_data;
+static struct apds993x_data *pdev_data = NULL;
 
 /* global i2c_client to support ioctl */
-static struct i2c_client *apds993x_i2c_client;
-static struct workqueue_struct *apds993x_workqueue;
+static struct i2c_client *apds993x_i2c_client = NULL;
+static struct workqueue_struct *apds993x_workqueue = NULL;
 
 static unsigned char apds993x_als_atime_tb[] = { 0xF6, 0xED, 0xDB };
 static unsigned short apds993x_als_integration_tb[] = {2720, 5168, 10064};
@@ -377,17 +347,16 @@ static unsigned char apds993x_als_again_tb[] = { 1, 8, 16, 120 };
 static unsigned char apds993x_als_again_bit_tb[] = { 0x00, 0x01, 0x02, 0x03 };
 
 /*calibration*/
-static int apds993x_cross_talk_val;
+static int apds993x_cross_talk_val = 0;
 
 /* ALS tuning */
-static int apds993x_ga;
-static int apds993x_coe_b;
-static int apds993x_coe_c;
-static int apds993x_coe_d;
+static int apds993x_ga = 0;
+static int apds993x_coe_b = 0;
+static int apds993x_coe_c = 0;
+static int apds993x_coe_d = 0;
 
 #ifdef ALS_POLLING_ENABLED
-static int apds993x_set_als_poll_delay(struct i2c_client *client,
-					unsigned int val);
+static int apds993x_set_als_poll_delay(struct i2c_client *client, unsigned int val);
 #endif
 
 static int sensor_regulator_power_on(struct apds993x_data *data, bool on);
@@ -598,7 +567,7 @@ static int apds993x_set_control(struct i2c_client *client, int control)
 }
 
 /*calibration*/
-static void apds993x_swap(int *x, int *y)
+void apds993x_swap(int *x, int *y)
 {
 	int temp = *x;
 	*x = *y;
@@ -633,7 +602,7 @@ RECALIBRATION:
 #endif
 
 	for (i = 0; i < 20; i++) {
-		usleep_range(6000, 6500);
+		mdelay(6);
 		mutex_lock(&data->update_lock);
 		temp_pdata[i] = i2c_smbus_read_word_data(client,
 				CMD_WORD|APDS993X_PDATAL_REG);
@@ -670,8 +639,8 @@ RECALIBRATION:
 			cal_check_flag = 1;
 			goto RECALIBRATION;
 		} else {
-			pr_err("%s: CALIBRATION FAIL -> cross_talk is set\n"
-				"to DEFAULT\n",	__func__);
+			pr_err("%s: CALIBRATION FAIL -> "
+			       "cross_talk is set to DEFAULT\n", __func__);
 			data->cross_talk = DEFAULT_CROSS_TALK;
 			apds993x_set_enable(client, 0x00); /* Power Off */
 			data->ps_cal_result = 0; /* 0:Fail, 1:Pass */
@@ -714,10 +683,10 @@ static void apds993x_set_ps_threshold_adding_cross_talk(
 static int LuxCalculation(struct i2c_client *client, int ch0data, int ch1data)
 {
 	struct apds993x_data *data = i2c_get_clientdata(client);
-	int luxValue = -1;
-	int IAC1 = 0;
-	int IAC2 = 0;
-	int IAC = 0;
+	int luxValue=0;
+	int IAC1=0;
+	int IAC2=0;
+	int IAC=0;
 
 	if (ch0data >= apds993x_als_res_tb[data->als_atime_index] ||
 	    ch1data >= apds993x_als_res_tb[data->als_atime_index]) {
@@ -740,7 +709,7 @@ static int LuxCalculation(struct i2c_client *client, int ch0data, int ch1data)
 
 	if (IAC1 < 0 && IAC2 < 0) {
 		IAC = 0;	/* cdata and irdata saturated */
-		return luxValue; /* don't report first, change gain may help */
+		return -1; 	/* don't report first, change gain may help */
 	}
 
 	if (data->als_reduce) {
@@ -748,7 +717,7 @@ static int LuxCalculation(struct i2c_client *client, int ch0data, int ch1data)
 			((apds993x_als_integration_tb[data->als_atime_index] /
 			  100) * apds993x_als_again_tb[data->als_again_index]);
 	} else {
-		luxValue = ((IAC * apds993x_ga * APDS993X_DF) / 100) /
+		luxValue = ((IAC * apds993x_ga * APDS993X_DF) /100) /
 			((apds993x_als_integration_tb[data->als_atime_index] /
 			  100) * apds993x_als_again_tb[data->als_again_index]);
 	}
@@ -819,11 +788,11 @@ static void apds993x_change_als_threshold(struct i2c_client *client)
 {
 	struct apds993x_data *data = i2c_get_clientdata(client);
 	int ch0data, ch1data, v;
-	int luxValue = 0;
+	int luxValue=0;
 	int err;
-	unsigned char change_again = 0;
-	unsigned char control_data = 0;
-	unsigned char lux_is_valid = 1;
+	unsigned char change_again=0;
+	unsigned char control_data=0;
+	unsigned char lux_is_valid=1;
 
 	ch0data = i2c_smbus_read_word_data(client,
 			CMD_WORD|APDS993X_CH0DATAL_REG);
@@ -903,7 +872,7 @@ static void apds993x_change_als_threshold(struct i2c_client *client)
 	}
 
 	if (data->als_data >=
-		((apds993x_als_res_tb[data->als_atime_index] * 90) / 100)) {
+		((apds993x_als_res_tb[data->als_atime_index] * 90 ) / 100)) {
 		/* lower AGAIN if possible */
 		if (data->als_again_index != APDS993X_ALS_GAIN_1X) {
 			data->als_again_index--;
@@ -964,13 +933,13 @@ static void apds993x_als_polling_work_handler(struct work_struct *work)
 {
 	struct apds993x_data *data = container_of(work,
 			struct apds993x_data, als_dwork.work);
-	struct i2c_client *client = data->client;
+	struct i2c_client *client=data->client;
 	int ch0data, ch1data, pdata, v;
-	int luxValue = 0;
+	int luxValue=0;
 	int err;
-	unsigned char change_again = 0;
-	unsigned char control_data = 0;
-	unsigned char lux_is_valid = 1;
+	unsigned char change_again=0;
+	unsigned char control_data=0;
+	unsigned char lux_is_valid=1;
 
 	ch0data = i2c_smbus_read_word_data(client,
 			CMD_WORD|APDS993X_CH0DATAL_REG);
@@ -1022,8 +991,7 @@ static void apds993x_als_polling_work_handler(struct work_struct *work)
 		i2c_smbus_write_word_data(client,
 				CMD_WORD|APDS993X_PILTL_REG, 0);
 		i2c_smbus_write_word_data(client,
-				CMD_WORD|APDS993X_PIHTL_REG,
-				data->ps_threshold);
+				CMD_WORD|APDS993X_PIHTL_REG, data->ps_threshold);
 
 		data->pilt = 0;
 		data->piht = data->ps_threshold;
@@ -1040,7 +1008,7 @@ static void apds993x_als_polling_work_handler(struct work_struct *work)
 	data->als_data = ch0data;
 
 	if (data->als_data >=
-	    (apds993x_als_res_tb[data->als_atime_index] * 90) / 100) {
+	    (apds993x_als_res_tb[data->als_atime_index]* 90) / 100) {
 		/* lower AGAIN if possible */
 		if (data->als_again_index != APDS993X_ALS_GAIN_1X) {
 			data->als_again_index--;
@@ -1078,8 +1046,7 @@ static void apds993x_als_polling_work_handler(struct work_struct *work)
 
 	/* restart timer */
 	queue_delayed_work(apds993x_workqueue,
-			&data->als_dwork,
-			msecs_to_jiffies(data->als_poll_delay));
+			&data->als_dwork, msecs_to_jiffies(data->als_poll_delay));
 }
 #endif /* ALS_POLLING_ENABLED */
 
@@ -1088,7 +1055,7 @@ static void apds993x_work_handler(struct work_struct *work)
 {
 	struct apds993x_data *data =
 		container_of(work, struct apds993x_data, dwork.work);
-	struct i2c_client *client = data->client;
+	struct i2c_client *client=data->client;
 	int status;
 	int ch0data;
 	int enable;
@@ -1153,7 +1120,7 @@ static void apds993x_work_handler(struct work_struct *work)
 /* assume this is ISR */
 static irqreturn_t apds993x_interrupt(int vec, void *info)
 {
-	struct i2c_client *client = (struct i2c_client *)info;
+	struct i2c_client *client=(struct i2c_client *)info;
 	struct apds993x_data *data = i2c_get_clientdata(client);
 
 	apds993x_reschedule_work(data, 0);
@@ -1182,7 +1149,7 @@ static int apds993x_enable_als_sensor(struct i2c_client *client, int val)
 		/* turn on light  sensor */
 		if ((data->enable_als_sensor == 0) &&
 			(data->enable_ps_sensor == 0)) {
-			/* Power on and initialize the device */
+			/* Power on and initalize the device */
 			if (pdata->power_on)
 				pdata->power_on(true);
 
@@ -1197,7 +1164,7 @@ static int apds993x_enable_als_sensor(struct i2c_client *client, int val)
 		if (data->enable_als_sensor == 0) {
 			data->enable_als_sensor = 1;
 			/* Power Off */
-			apds993x_set_enable(client, 0);
+			apds993x_set_enable(client,0);
 
 #ifdef ALS_POLLING_ENABLED
 			if (data->enable_ps_sensor) {
@@ -1212,8 +1179,8 @@ static int apds993x_enable_als_sensor(struct i2c_client *client, int val)
 			 *  force first ALS interrupt in order to
 			 * get environment reading
 			 */
-			apds993x_set_ailt(client, 0xFFFF);
-			apds993x_set_aiht(client, 0);
+			apds993x_set_ailt( client, 0xFFFF);
+			apds993x_set_aiht( client, 0);
 
 			if (data->enable_ps_sensor) {
 				/* Enable both ALS and PS with interrupt */
@@ -1233,9 +1200,7 @@ static int apds993x_enable_als_sensor(struct i2c_client *client, int val)
 			 * that's why we have to cancel it first.
 			 */
 			cancel_delayed_work_sync(&data->als_dwork);
-			queue_delayed_work(apds993x_workqueue,
-					&data->als_dwork,
-					msecs_to_jiffies(data->als_poll_delay));
+			queue_delayed_work(apds993x_workqueue, &data->als_dwork, msecs_to_jiffies(data->als_poll_delay));
 #endif
 		}
 	} else {
@@ -1247,7 +1212,7 @@ static int apds993x_enable_als_sensor(struct i2c_client *client, int val)
 
 		if (data->enable_ps_sensor) {
 			/* Power Off */
-			apds993x_set_enable(client, 0);
+			apds993x_set_enable(client,0);
 
 			apds993x_set_piht(client, 0);
 			apds993x_set_piht(client,
@@ -1285,7 +1250,7 @@ static int apds993x_set_als_poll_delay(struct i2c_client *client,
 {
 	struct apds993x_data *data = i2c_get_clientdata(client);
 	int ret;
-	int atime_index = 0;
+	int atime_index=0;
 
 	pr_debug("%s: val=%d\n", __func__, val);
 	mutex_lock(&data->op_mutex);
@@ -1346,7 +1311,7 @@ static int apds993x_enable_ps_sensor(struct i2c_client *client, int val)
 		/* turn on p sensor */
 		if ((data->enable_als_sensor == 0) &&
 			(data->enable_ps_sensor == 0)) {
-			/* Power on and initialize the device */
+			/* Power on and initalize the device */
 			if (pdata->power_on)
 				pdata->power_on(true);
 
@@ -1357,11 +1322,11 @@ static int apds993x_enable_ps_sensor(struct i2c_client *client, int val)
 			}
 		}
 
-		if (data->enable_ps_sensor == 0) {
-			data->enable_ps_sensor = 1;
+		if (data->enable_ps_sensor==0) {
+			data->enable_ps_sensor= 1;
 
 			/* Power Off */
-			apds993x_set_enable(client, 0);
+			apds993x_set_enable(client,0);
 
 			/* init threshold for proximity */
 			apds993x_set_pilt(client,
@@ -1374,7 +1339,7 @@ static int apds993x_enable_ps_sensor(struct i2c_client *client, int val)
 						client, data->cross_talk);
 			}
 
-			if (data->enable_als_sensor == 0) {
+			if (data->enable_als_sensor==0) {
 				/* only enable PS interrupt */
 				apds993x_set_enable(client, 0x27);
 				if (data->irq) {
@@ -1430,10 +1395,10 @@ static int apds993x_enable_ps_sensor(struct i2c_client *client, int val)
 				irq_set_irq_wake(client->irq, 0);
 
 			/* Power Off */
-			apds993x_set_enable(client, 0);
+			apds993x_set_enable(client,0);
 			/* Force ALS interrupt */
-			apds993x_set_ailt(client, 0xFFFF);
-			apds993x_set_aiht(client, 0);
+			apds993x_set_ailt( client, 0xFFFF);
+			apds993x_set_aiht( client, 0);
 
 			/* enable ALS interrupt */
 			apds993x_set_enable(client, 0x13);
@@ -1538,7 +1503,7 @@ static long apds993x_ps_ioctl(struct file *file,
 		break;
 	}
 
-	return 0;
+    return 0;
 }
 
 static int apds993x_als_open(struct inode *inode, struct file *file)
@@ -1598,7 +1563,7 @@ static long apds993x_als_ioctl(struct file *file,
 			return -EFAULT;
 		}
 
-		ret = apds993x_set_als_poll_delay(client, delay);
+		ret = apds993x_set_als_poll_delay (client, delay);
 		if (ret < 0)
 			return ret;
 		break;
@@ -1821,12 +1786,7 @@ static ssize_t apds993x_store_enable_ps_sensor(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	unsigned long val;
-	int ret;
-
-	ret = kstrtoul(buf, 10, &val);
-	if (ret < 0)
-		return ret;
+	unsigned long val = simple_strtoul(buf, NULL, 10);
 
 	pr_debug("%s: val=%ld\n", __func__, val);
 
@@ -1857,12 +1817,7 @@ static ssize_t apds993x_store_enable_als_sensor(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	unsigned long val;
-	int ret;
-
-	ret = kstrtoul(buf, 10, &val);
-	if (ret < 0)
-		return ret;
+	unsigned long val = simple_strtoul(buf, NULL, 10);
 
 	pr_debug("%s: val=%ld\n", __func__, val);
 
@@ -2007,12 +1962,7 @@ static ssize_t apds993x_store_als_poll_delay(struct device *dev,
 {
 #ifdef ALS_POLLING_ENABLED
 	struct i2c_client *client = to_i2c_client(dev);
-	unsigned long val;
-	int ret;
-
-	ret = kstrtoul(buf, 10, &val);
-	if (ret < 0)
-		return ret;
+	unsigned long val = simple_strtoul(buf, NULL, 10);
 
 	apds993x_set_als_poll_delay(client, val);
 #endif
@@ -2063,7 +2013,7 @@ static const struct attribute_group apds993x_attr_group = {
 	.attrs = apds993x_attributes,
 };
 
-static const struct file_operations apds993x_ps_fops = {
+static struct file_operations apds993x_ps_fops = {
 	.owner = THIS_MODULE,
 	.open = apds993x_ps_open,
 	.release = apds993x_ps_release,
@@ -2076,7 +2026,7 @@ static struct miscdevice apds993x_ps_device = {
 	.fops = &apds993x_ps_fops,
 };
 
-static const struct file_operations apds993x_als_fops = {
+static struct file_operations apds993x_als_fops = {
 	.owner = THIS_MODULE,
 	.open = apds993x_als_open,
 	.release = apds993x_als_release,
@@ -2339,6 +2289,7 @@ static int sensor_regulator_power_on(struct apds993x_data *data, bool on)
 				goto enable_delay;
 			}
 		}
+		return rc;
 	} else {
 		rc = regulator_enable(data->vdd);
 		if (rc) {
@@ -2352,12 +2303,9 @@ static int sensor_regulator_power_on(struct apds993x_data *data, bool on)
 			dev_err(&data->client->dev,
 				"Regulator vio enable failed rc=%d\n", rc);
 			regulator_disable(data->vdd);
-		} else {
-			goto enable_delay;
+			return rc;
 		}
 	}
-
-	return rc;
 
 enable_delay:
 	msleep(130);
@@ -2621,6 +2569,7 @@ static int apds993x_probe(struct i2c_client *client,
 
 	data = kzalloc(sizeof(struct apds993x_data), GFP_KERNEL);
 	if (!data) {
+		dev_err(&client->dev, "Failed to allocate memory\n");
 		err = -ENOMEM;
 		goto exit;
 	}
@@ -2656,13 +2605,13 @@ static int apds993x_probe(struct i2c_client *client,
 	data->ps_threshold = apds993x_ps_detection_threshold;
 	data->ps_hysteresis_threshold = apds993x_ps_hsyteresis_threshold;
 	data->ps_detection = 0;	/* default to no detection */
-	data->enable_als_sensor = 0;	/* default to 0 */
-	data->enable_ps_sensor = 0;	/* default to 0 */
+	data->enable_als_sensor = 0;	// default to 0
+	data->enable_ps_sensor = 0;	// default to 0
 	atomic_set(&data->ps_cal_status, 0);
-	data->als_poll_delay = 100;	/* default to 100ms */
-	data->als_atime_index = APDS993X_ALS_RES_37888;	/* 100ms ATIME */
-	data->als_again_index = APDS993X_ALS_GAIN_8X;	/* 8x AGAIN */
-	data->als_reduce = 0;	/* no ALS 6x reduction */
+	data->als_poll_delay = 100;	// default to 100ms
+	data->als_atime_index = APDS993X_ALS_RES_37888;	// 100ms ATIME
+	data->als_again_index = APDS993X_ALS_GAIN_8X;	// 8x AGAIN
+	data->als_reduce = 0;	// no ALS 6x reduction
 	data->als_prev_lux = 0;
 
 	/* calibration */
@@ -2875,7 +2824,7 @@ static struct of_device_id apds993X_match_table[] = {
 
 static const struct dev_pm_ops apds993x_pm_ops = {
 	.suspend	= apds993x_suspend,
-	.resume		= apds993x_resume,
+	.resume 	= apds993x_resume,
 };
 
 static struct i2c_driver apds993x_driver = {
@@ -2908,8 +2857,10 @@ static void __exit apds993x_exit(void)
 	i2c_del_driver(&apds993x_driver);
 }
 
+MODULE_AUTHOR("Lee Kai Koon <kai-koon.lee@avagotech.com>");
 MODULE_DESCRIPTION("APDS993X ambient light + proximity sensor driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(DRIVER_VERSION);
 
 module_init(apds993x_init);
 module_exit(apds993x_exit);

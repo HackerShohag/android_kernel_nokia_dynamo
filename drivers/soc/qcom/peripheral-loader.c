@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +23,7 @@
 #include <linux/sysfs.h>
 #include <linux/workqueue.h>
 #include <linux/jiffies.h>
+#include <linux/wakelock.h>
 #include <linux/err.h>
 #include <linux/list.h>
 #include <linux/list_sort.h>
@@ -34,7 +35,6 @@
 #include <linux/dma-mapping.h>
 #include <soc/qcom/ramdump.h>
 #include <soc/qcom/subsystem_restart.h>
-#include <soc/qcom/secure_buffer.h>
 
 #include <asm/uaccess.h>
 #include <asm/setup.h>
@@ -65,8 +65,6 @@ static void __iomem *pil_info_base;
 static int proxy_timeout_ms = -1;
 module_param(proxy_timeout_ms, int, S_IRUGO | S_IWUSR);
 
-static bool disable_timeouts;
-static const char firmware_error_msg[] = "firmware_error\n";
 /**
  * struct pil_mdt - Representation of <name>.mdt file in memory
  * @hdr: ELF32 header
@@ -101,8 +99,8 @@ struct pil_seg {
 /**
  * struct pil_priv - Private state for a pil_desc
  * @proxy: work item used to run the proxy unvoting routine
- * @ws: wakeup source to prevent suspend during pil_boot
- * @wname: name of @ws
+ * @wlock: wakelock to prevent suspend during pil_boot
+ * @wname: name of @wlock
  * @desc: pointer to pil_desc this is private data for
  * @seg: list of segments sorted by physical address
  * @entry_addr: physical address where processor starts booting at
@@ -121,7 +119,7 @@ struct pil_seg {
  */
 struct pil_priv {
 	struct delayed_work proxy;
-	struct wakeup_source ws;
+	struct wake_lock wlock;
 	char wname[32];
 	struct pil_desc *desc;
 	struct list_head segs;
@@ -158,10 +156,6 @@ int pil_do_ramdump(struct pil_desc *desc, void *ramdump_dev)
 	if (!ramdump_segs)
 		return -ENOMEM;
 
-	if (desc->subsys_vmid > 0)
-		ret = pil_assign_mem_to_linux(desc, priv->region_start,
-				(priv->region_end - priv->region_start));
-
 	s = ramdump_segs;
 	list_for_each_entry(seg, &priv->segs, list) {
 		s->address = seg->paddr;
@@ -172,87 +166,9 @@ int pil_do_ramdump(struct pil_desc *desc, void *ramdump_dev)
 	ret = do_elf_ramdump(ramdump_dev, ramdump_segs, count);
 	kfree(ramdump_segs);
 
-	if (ret)
-		pil_err(desc, "%s: Ramdump collection failed for subsys %s rc:%d\n",
-				__func__, desc->name, ret);
-
-	if (desc->subsys_vmid > 0)
-		ret = pil_assign_mem_to_subsys(desc, priv->region_start,
-				(priv->region_end - priv->region_start));
-
 	return ret;
 }
 EXPORT_SYMBOL(pil_do_ramdump);
-
-int pil_assign_mem_to_subsys(struct pil_desc *desc, phys_addr_t addr,
-							size_t size)
-{
-	int ret;
-	int srcVM[1] = {VMID_HLOS};
-	int destVM[1] = {desc->subsys_vmid};
-	int destVMperm[1] = {PERM_READ | PERM_WRITE};
-
-	ret = hyp_assign_phys(addr, size, srcVM, 1, destVM, destVMperm, 1);
-	if (ret)
-		pil_err(desc, "%s: failed for %pa address of size %zx - subsys VMid %d\n",
-				__func__, &addr, size, desc->subsys_vmid);
-	return ret;
-}
-EXPORT_SYMBOL(pil_assign_mem_to_subsys);
-
-int pil_assign_mem_to_linux(struct pil_desc *desc, phys_addr_t addr,
-							size_t size)
-{
-	int ret;
-	int srcVM[1] = {desc->subsys_vmid};
-	int destVM[1] = {VMID_HLOS};
-	int destVMperm[1] = {PERM_READ | PERM_WRITE | PERM_EXEC};
-
-	ret = hyp_assign_phys(addr, size, srcVM, 1, destVM, destVMperm, 1);
-	if (ret)
-		panic("%s: failed for %pa address of size %zx - subsys VMid %d. Fatal error.\n",
-				__func__, &addr, size, desc->subsys_vmid);
-
-	return ret;
-}
-EXPORT_SYMBOL(pil_assign_mem_to_linux);
-
-int pil_assign_mem_to_subsys_and_linux(struct pil_desc *desc,
-						phys_addr_t addr, size_t size)
-{
-	int ret;
-	int srcVM[1] = {VMID_HLOS};
-	int destVM[2] = {VMID_HLOS, desc->subsys_vmid};
-	int destVMperm[2] = {PERM_READ | PERM_WRITE, PERM_READ | PERM_WRITE};
-
-	ret = hyp_assign_phys(addr, size, srcVM, 1, destVM, destVMperm, 2);
-	if (ret)
-		pil_err(desc, "%s: failed for %pa address of size %zx - subsys VMid %d\n",
-				__func__, &addr, size, desc->subsys_vmid);
-
-	return ret;
-}
-EXPORT_SYMBOL(pil_assign_mem_to_subsys_and_linux);
-
-int pil_reclaim_mem(struct pil_desc *desc, phys_addr_t addr, size_t size,
-						int VMid)
-{
-	int ret;
-	int srcVM[2] = {VMID_HLOS, desc->subsys_vmid};
-	int destVM[1] = {VMid};
-	int destVMperm[1] = {PERM_READ | PERM_WRITE};
-
-	if (VMid == VMID_HLOS)
-		destVMperm[0] = PERM_READ | PERM_WRITE | PERM_EXEC;
-
-	ret = hyp_assign_phys(addr, size, srcVM, 2, destVM, destVMperm, 1);
-	if (ret)
-		panic("%s: failed for %pa address of size %zx - subsys VMid %d. Fatal error.\n",
-				__func__, &addr, size, desc->subsys_vmid);
-
-	return ret;
-}
-EXPORT_SYMBOL(pil_reclaim_mem);
 
 /**
  * pil_get_entry_addr() - Retrieve the entry address of a peripheral image
@@ -272,7 +188,7 @@ static void __pil_proxy_unvote(struct pil_priv *priv)
 
 	desc->ops->proxy_unvote(desc);
 	notify_proxy_unvote(desc->dev);
-	__pm_relax(&priv->ws);
+	wake_unlock(&priv->wlock);
 	module_put(desc->owner);
 
 }
@@ -290,10 +206,10 @@ static int pil_proxy_vote(struct pil_desc *desc)
 	struct pil_priv *priv = desc->priv;
 
 	if (desc->ops->proxy_vote) {
-		__pm_stay_awake(&priv->ws);
+		wake_lock(&priv->wlock);
 		ret = desc->ops->proxy_vote(desc);
 		if (ret)
-			__pm_relax(&priv->ws);
+			wake_unlock(&priv->wlock);
 	}
 
 	if (desc->proxy_unvote_irq)
@@ -455,7 +371,6 @@ static int pil_alloc_region(struct pil_priv *priv, phys_addr_t min_addr,
 	else
 		aligned_size = ALIGN(size, SZ_1M);
 
-	init_dma_attrs(&priv->desc->attrs);
 	dma_set_attr(DMA_ATTR_SKIP_ZEROING, &priv->desc->attrs);
 	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &priv->desc->attrs);
 
@@ -566,7 +481,6 @@ static int pil_init_mmap(struct pil_desc *desc, const struct pil_mdt *mdt)
 	if (ret)
 		return ret;
 
-
 	pil_info(desc, "loading from %pa to %pa\n", &priv->region_start,
 							&priv->region_end);
 
@@ -628,12 +542,6 @@ static void pil_clear_segment(struct pil_desc *desc)
 	/* Clear memory so that unauthorized ELF code is not left behind */
 	buf = desc->map_fw_mem(priv->region_start, (priv->region_end -
 					priv->region_start), map_data);
-
-	if (!buf) {
-		pil_err(desc, "Failed to map memory\n");
-		return;
-	}
-
 	pil_memset_io(buf, 0, (priv->region_end - priv->region_start));
 	desc->unmap_fw_mem(buf, (priv->region_end - priv->region_start),
 								map_data);
@@ -673,21 +581,19 @@ static int pil_load_seg(struct pil_desc *desc, struct pil_seg *seg)
 
 	if (seg->filesz) {
 		snprintf(fw_name, ARRAY_SIZE(fw_name), "%s.b%02d",
-				desc->fw_name, num);
-		ret = request_firmware_into_buf(fw_name, desc->dev, seg->paddr,
+				desc->name, num);
+		ret = request_firmware_direct(fw_name, desc->dev, seg->paddr,
 					      seg->filesz, desc->map_fw_mem,
 					      desc->unmap_fw_mem, map_data);
 		if (ret < 0) {
 			pil_err(desc, "Failed to locate blob %s or blob is too big.\n",
 				fw_name);
-			subsys_set_error(desc->subsys_dev, firmware_error_msg);
 			return ret;
 		}
 
 		if (ret != seg->filesz) {
 			pil_err(desc, "Blob size %u doesn't match %lu\n",
 					ret, seg->filesz);
-			subsys_set_error(desc->subsys_dev, firmware_error_msg);
 			return -EPERM;
 		}
 		ret = 0;
@@ -716,10 +622,8 @@ static int pil_load_seg(struct pil_desc *desc, struct pil_seg *seg)
 
 	if (desc->ops->verify_blob) {
 		ret = desc->ops->verify_blob(desc, seg->paddr, seg->sz);
-		if (ret) {
+		if (ret)
 			pil_err(desc, "Blob%u failed verification\n", num);
-			subsys_set_error(desc->subsys_dev, firmware_error_msg);
-		}
 	}
 
 	return ret;
@@ -727,25 +631,17 @@ static int pil_load_seg(struct pil_desc *desc, struct pil_seg *seg)
 
 static int pil_parse_devicetree(struct pil_desc *desc)
 {
-	struct device_node *ofnode = desc->dev->of_node;
 	int clk_ready = 0;
 
-	if (!ofnode)
-		return -EINVAL;
-
-	if (of_property_read_u32(ofnode, "qcom,mem-protect-id",
-					&desc->subsys_vmid))
-		pr_debug("Unable to read the addr-protect-id for %s\n",
-					desc->name);
-
-	if (desc->ops->proxy_unvote && of_find_property(ofnode,
-					"qcom,gpio-proxy-unvote",
-					NULL)) {
-		clk_ready = of_get_named_gpio(ofnode,
+	if (desc->ops->proxy_unvote &&
+		of_find_property(desc->dev->of_node,
+				"qcom,gpio-proxy-unvote",
+				NULL)) {
+		clk_ready = of_get_named_gpio(desc->dev->of_node,
 				"qcom,gpio-proxy-unvote", 0);
 
 		if (clk_ready < 0) {
-			dev_dbg(desc->dev,
+			dev_err(desc->dev,
 				"[%s]: Error getting proxy unvoting gpio\n",
 				desc->name);
 			return clk_ready;
@@ -766,6 +662,9 @@ static int pil_parse_devicetree(struct pil_desc *desc)
 /* Synchronize request_firmware() with suspend */
 static DECLARE_RWSEM(pil_pm_rwsem);
 
+/* Add for one image */
+extern int fih_update_sku_to_cust(void);
+
 /**
  * pil_boot() - Load a peripheral image into memory and boot it
  * @desc: descriptor from pil_desc_init()
@@ -781,17 +680,12 @@ int pil_boot(struct pil_desc *desc)
 	struct pil_seg *seg;
 	const struct firmware *fw;
 	struct pil_priv *priv = desc->priv;
-	bool mem_protect = false;
-	bool hyp_assign = false;
-
-	if (desc->shutdown_fail)
-		pil_err(desc, "Subsystem shutdown failed previously!\n");
 
 	/* Reinitialize for new image */
 	pil_release_mmap(desc);
 
 	down_read(&pil_pm_rwsem);
-	snprintf(fw_name, sizeof(fw_name), "%s.mdt", desc->fw_name);
+	snprintf(fw_name, sizeof(fw_name), "%s.mdt", desc->name);
 	ret = request_firmware(&fw, fw_name, desc->dev);
 	if (ret) {
 		pil_err(desc, "Failed to locate %s\n", fw_name);
@@ -800,7 +694,6 @@ int pil_boot(struct pil_desc *desc)
 
 	if (fw->size < sizeof(*ehdr)) {
 		pil_err(desc, "Not big enough to be an elf header\n");
-		subsys_set_error(desc->subsys_dev, firmware_error_msg);
 		ret = -EIO;
 		goto release_fw;
 	}
@@ -810,24 +703,23 @@ int pil_boot(struct pil_desc *desc)
 
 	if (memcmp(ehdr->e_ident, ELFMAG, SELFMAG)) {
 		pil_err(desc, "Not an elf header\n");
-		subsys_set_error(desc->subsys_dev, firmware_error_msg);
 		ret = -EIO;
 		goto release_fw;
 	}
 
 	if (ehdr->e_phnum == 0) {
 		pil_err(desc, "No loadable segments\n");
-		subsys_set_error(desc->subsys_dev, firmware_error_msg);
 		ret = -EIO;
 		goto release_fw;
 	}
 	if (sizeof(struct elf32_phdr) * ehdr->e_phnum +
 	    sizeof(struct elf32_hdr) > fw->size) {
 		pil_err(desc, "Program headers not within mdt\n");
-		subsys_set_error(desc->subsys_dev, firmware_error_msg);
 		ret = -EIO;
 		goto release_fw;
 	}
+
+	init_dma_attrs(&desc->attrs);
 
 	ret = pil_init_mmap(desc, mdt);
 	if (ret)
@@ -841,12 +733,9 @@ int pil_boot(struct pil_desc *desc)
 	}
 
 	if (desc->ops->init_image)
-		ret = desc->ops->init_image(desc, fw->data, fw->size,
-			priv->region_start,
-			priv->region_end - priv->region_start);
+		ret = desc->ops->init_image(desc, fw->data, fw->size);
 	if (ret) {
 		pil_err(desc, "Invalid firmware metadata\n");
-		subsys_set_error(desc->subsys_dev, firmware_error_msg);
 		goto err_boot;
 	}
 
@@ -858,50 +747,24 @@ int pil_boot(struct pil_desc *desc)
 		goto err_deinit_image;
 	}
 
-	if (desc->subsys_vmid > 0) {
-		ret = pil_assign_mem_to_subsys_and_linux(desc,
-				priv->region_start,
-				(priv->region_end - priv->region_start));
-		if (ret) {
-			pil_err(desc, "Failed to assign memory, ret - %d\n",
-								ret);
-			goto err_deinit_image;
-		}
-		hyp_assign = true;
-	}
-
 	list_for_each_entry(seg, &desc->priv->segs, list) {
 		ret = pil_load_seg(desc, seg);
 		if (ret)
 			goto err_deinit_image;
 	}
 
-	if (desc->subsys_vmid > 0) {
-		ret =  pil_reclaim_mem(desc, priv->region_start,
-				(priv->region_end - priv->region_start),
-				desc->subsys_vmid);
-		if (ret) {
-			pil_err(desc, "Failed to assign %s memory, ret - %d\n",
-							desc->name, ret);
-			goto err_deinit_image;
-		}
-		hyp_assign = false;
+	/* Add for one image */
+	if(!(strncmp(desc->name, "modem", sizeof(char)*5))) {
+		ret = fih_update_sku_to_cust();
+		pr_info("fih_update_sku_to = %d\n",ret);
 	}
 
 	ret = desc->ops->auth_and_reset(desc);
 	if (ret) {
 		pil_err(desc, "Failed to bring out of reset\n");
-		subsys_set_error(desc->subsys_dev, firmware_error_msg);
-		goto err_auth_and_reset;
+		goto err_deinit_image;
 	}
 	pil_info(desc, "Brought out of reset\n");
-	desc->modem_ssr = false;
-err_auth_and_reset:
-	if (ret && desc->subsys_vmid > 0) {
-		pil_assign_mem_to_linux(desc, priv->region_start,
-				(priv->region_end - priv->region_start));
-		mem_protect = true;
-	}
 err_deinit_image:
 	if (ret && desc->ops->deinit_image)
 		desc->ops->deinit_image(desc);
@@ -915,20 +778,13 @@ out:
 	up_read(&pil_pm_rwsem);
 	if (ret) {
 		if (priv->region) {
-			if (desc->subsys_vmid > 0 && !mem_protect &&
-					hyp_assign) {
-				pil_reclaim_mem(desc, priv->region_start,
-					(priv->region_end -
-						priv->region_start),
-					VMID_HLOS);
-			}
-			if (desc->clear_fw_region && priv->region_start)
-				pil_clear_segment(desc);
 			dma_free_attrs(desc->dev, priv->region_size,
 					priv->region, priv->region_start,
 					&desc->attrs);
 			priv->region = NULL;
 		}
+		if (desc->clear_fw_region && priv->region_start)
+			pil_clear_segment(desc);
 		pil_release_mmap(desc);
 	}
 	return ret;
@@ -943,12 +799,8 @@ void pil_shutdown(struct pil_desc *desc)
 {
 	struct pil_priv *priv = desc->priv;
 
-	if (desc->ops->shutdown) {
-		if (desc->ops->shutdown(desc))
-			desc->shutdown_fail = true;
-		else
-			desc->shutdown_fail = false;
-	}
+	if (desc->ops->shutdown)
+		desc->ops->shutdown(desc);
 
 	if (desc->proxy_unvote_irq) {
 		disable_irq(desc->proxy_unvote_irq);
@@ -958,7 +810,6 @@ void pil_shutdown(struct pil_desc *desc)
 		pil_proxy_unvote(desc, 1);
 	else
 		flush_delayed_work(&priv->proxy);
-	desc->modem_ssr = true;
 }
 EXPORT_SYMBOL(pil_shutdown);
 
@@ -971,9 +822,6 @@ void pil_free_memory(struct pil_desc *desc)
 	struct pil_priv *priv = desc->priv;
 
 	if (priv->region) {
-		if (desc->subsys_vmid > 0)
-			pil_assign_mem_to_linux(desc, priv->region_start,
-				(priv->region_end - priv->region_start));
 		dma_free_attrs(desc->dev, priv->region_size,
 				priv->region, priv->region_start, &desc->attrs);
 		priv->region = NULL;
@@ -983,10 +831,6 @@ EXPORT_SYMBOL(pil_free_memory);
 
 static DEFINE_IDA(pil_ida);
 
-bool is_timeout_disabled(void)
-{
-	return disable_timeouts;
-}
 /**
  * pil_desc_init() - Initialize a pil descriptor
  * @desc: descriptor to intialize
@@ -1051,7 +895,7 @@ int pil_desc_init(struct pil_desc *desc)
 	}
 
 	snprintf(priv->wname, sizeof(priv->wname), "pil-%s", desc->name);
-	wakeup_source_init(&priv->ws, priv->wname);
+	wake_lock_init(&priv->wlock, WAKE_LOCK_SUSPEND, priv->wname);
 	INIT_DELAYED_WORK(&priv->proxy, pil_proxy_unvote_work);
 	INIT_LIST_HEAD(&priv->segs);
 
@@ -1082,7 +926,7 @@ void pil_desc_release(struct pil_desc *desc)
 	if (priv) {
 		ida_simple_remove(&pil_ida, priv->id);
 		flush_delayed_work(&priv->proxy);
-		wakeup_source_trash(&priv->ws);
+		wake_lock_destroy(&priv->wlock);
 	}
 	desc->priv = NULL;
 	kfree(priv);
@@ -1125,10 +969,6 @@ static int __init msm_pil_init(void)
 	if (!pil_info_base) {
 		pr_warn("pil: could not map imem region\n");
 		goto out;
-	}
-	if (__raw_readl(pil_info_base) == 0x53444247) {
-		pr_info("pil: pil-imem set to disable pil timeouts\n");
-		disable_timeouts = true;
 	}
 	for (i = 0; i < resource_size(&res)/sizeof(u32); i++)
 		writel_relaxed(0, pil_info_base + (i * sizeof(u32)));

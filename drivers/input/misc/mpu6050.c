@@ -1,7 +1,7 @@
 /*
  * MPU6050 6-axis gyroscope + accelerometer driver
  *
- * Copyright (c) 2014-2015, 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,6 +13,7 @@
  * GNU General Public License for more details.
  *
  */
+
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -36,7 +37,7 @@
 
 #define IS_ODD_NUMBER(x)	(x & 1UL)
 
-/* VDD 2.375V-3.46V VLOGIC 1.8V +-5% */
+/*VDD 2.375V-3.46V VLOGIC 1.8V +-5%*/
 #define MPU6050_VDD_MIN_UV	2500000
 #define MPU6050_VDD_MAX_UV	3400000
 #define MPU6050_VLOGIC_MIN_UV	1800000
@@ -77,10 +78,10 @@
 #define MPU_ACC_CAL_NUM	(MPU_ACC_CAL_COUNT - CAL_SKIP_COUNT)
 #define MPU_ACC_CAL_BUF_SIZE	22
 #define RAW_TO_1G	16384
-#define MPU_ACC_CAL_DELAY	100	/* ms */
-#define POLL_MS_100HZ	10
-#define SNS_TYPE_GYRO	0
-#define SNS_TYPE_ACCEL	1
+#define MPU_ACC_CAL_DELAY 100	/* ms */
+#define POLL_MS_100HZ 10
+#define SNS_TYPE_GYRO 0
+#define SNS_TYPE_ACCEL 1
 
 enum mpu6050_place {
 	MPU6050_PLACE_PU = 0,
@@ -109,7 +110,7 @@ struct axis_data {
 	s16 rz;
 };
 
-/*
+/**
  *  struct mpu6050_sensor - Cached chip configuration data
  *  @client:		I2C client
  *  @dev:		device structure
@@ -258,14 +259,13 @@ static struct sensors_classdev mpu6050_gyro_cdev = {
 };
 
 struct sensor_axis_remap {
-	/* src means which source will be mapped to target x, y, z axis
-	 * if an target OS axis is remapped from (-)x,
-	 * src is 0, sign_* is (-)1
-	 * if an target OS axis is remapped from (-)y,
-	 * src is 1, sign_* is (-)1
-	 * if an target OS axis is remapped from (-)z,
-	 * src is 2, sign_* is (-)1
-	 */
+	/* src means which source will be mapped to target x, y, z axis */
+	/* if an target OS axis is remapped from (-)x,
+	 * src is 0, sign_* is (-)1 */
+	/* if an target OS axis is remapped from (-)y,
+	 * src is 1, sign_* is (-)1 */
+	/* if an target OS axis is remapped from (-)z,
+	 * src is 2, sign_* is (-)1 */
 	int src_x:3;
 	int src_y:3;
 	int src_z:3;
@@ -436,7 +436,6 @@ static int mpu6050_power_ctl(struct mpu6050_sensor *sensor, bool on)
 				"Ignore power status change from %d to %d\n",
 				on, sensor->power_enabled);
 	}
-
 	return rc;
 }
 
@@ -511,7 +510,6 @@ reg_vdd_set_vtg:
 		regulator_set_voltage(sensor->vdd, 0, MPU6050_VDD_MAX_UV);
 reg_vdd_put:
 	regulator_put(sensor->vdd);
-
 	return ret;
 }
 
@@ -525,11 +523,10 @@ static int mpu6050_power_deinit(struct mpu6050_sensor *sensor)
 	if (regulator_count_voltages(sensor->vdd) > 0)
 		regulator_set_voltage(sensor->vdd, 0, MPU6050_VDD_MAX_UV);
 	regulator_put(sensor->vdd);
-
 	return ret;
 }
 
-/*
+/**
  * mpu6050_read_reg() - read multiple register data
  * @start_addr: register address read from
  * @buffer: provide register addr and get register
@@ -563,7 +560,7 @@ static int mpu6050_read_reg(struct i2c_client *client, u8 start_addr,
 	return i2c_transfer(client->adapter, msg, 2);
 }
 
-/*
+/**
  * mpu6050_read_accel_data() - get accelerometer data from device
  * @sensor: sensor device instance
  * @data: axis data to update
@@ -582,7 +579,7 @@ static void mpu6050_read_accel_data(struct mpu6050_sensor *sensor,
 	data->z = be16_to_cpu(buffer[2]);
 }
 
-/*
+/**
  * mpu6050_read_gyro_data() - get gyro data from device
  * @sensor: sensor device instance
  * @data: axis data to update
@@ -601,7 +598,7 @@ static void mpu6050_read_gyro_data(struct mpu6050_sensor *sensor,
 	data->rz = be16_to_cpu(buffer[2]);
 }
 
-/*
+/**
  * mpu6050_remap_accel_data() - remap accelerometer raw data to axis data
  * @data: data needs remap
  * @place: sensor position
@@ -622,9 +619,11 @@ static void mpu6050_remap_accel_data(struct axis_data *data, int place)
 	data->x = tmp[remap->src_x] * remap->sign_x;
 	data->y = tmp[remap->src_y] * remap->sign_y;
 	data->z = tmp[remap->src_z] * remap->sign_z;
+
+	return;
 }
 
-/*
+/**
  * mpu6050_remap_gyro_data() - remap gyroscope raw data to axis data
  * @data: data to remap
  * @place: sensor position
@@ -644,15 +643,17 @@ static void mpu6050_remap_gyro_data(struct axis_data *data, int place)
 	data->rx = tmp[remap->src_x] * remap->sign_x;
 	data->ry = tmp[remap->src_y] * remap->sign_y;
 	data->rz = tmp[remap->src_z] * remap->sign_z;
+
+	return;
 }
 
-/*
+/**
  * mpu6050_read_single_event() - handle one sensor event.
  * @sensor: sensor device instance
  *
  * It only reads one sensor event from sensor register and send it to
  * sensor HAL, FIFO overflow and motion detection interrupt should be
- * handle by separate function.
+ * handle by seperate function.
  */
 static void mpu6050_read_single_event(struct mpu6050_sensor *sensor)
 {
@@ -684,9 +685,10 @@ static void mpu6050_read_single_event(struct mpu6050_sensor *sensor)
 			(sensor->axis.rz >> shift));
 		input_sync(sensor->gyro_dev);
 	}
+	return;
 }
 
-/*
+/**
  * mpu6050_interrupt_thread() - handle an IRQ
  * @irq: interrupt number
  * @data: the sensor device
@@ -720,7 +722,6 @@ static irqreturn_t mpu6050_interrupt_thread(int irq, void *data)
 
 exit:
 	mutex_unlock(&sensor->op_lock);
-
 	return IRQ_HANDLED;
 }
 
@@ -751,9 +752,11 @@ static void mpu6050_sche_next_flush(struct mpu6050_sensor *sensor)
 			sensor->accel_latency_ms,
 			sensor->batch_gyro,
 			sensor->gyro_latency_ms);
+
+	return;
 }
 
-/*
+/**
  * mpu6050_fifo_flush_fn() - flush shared sensor FIFO
  * @work: the work struct
  */
@@ -765,6 +768,8 @@ static void mpu6050_fifo_flush_fn(struct work_struct *work)
 
 	mpu6050_flush_fifo(sensor);
 	mpu6050_sche_next_flush(sensor);
+
+	return;
 }
 
 static int mpu6050_manage_polling(int sns_type, struct mpu6050_sensor *sensor)
@@ -800,35 +805,30 @@ static int mpu6050_manage_polling(int sns_type, struct mpu6050_sensor *sensor)
 		ret = -EINVAL;
 		break;
 	}
-
 	return ret;
 }
 
 static enum hrtimer_restart gyro_timer_handle(struct hrtimer *hrtimer)
 {
 	struct mpu6050_sensor *sensor;
-
 	sensor = container_of(hrtimer, struct mpu6050_sensor, gyro_timer);
 	sensor->gyro_wkp_flag = 1;
 	wake_up_interruptible(&sensor->gyro_wq);
 	if (mpu6050_manage_polling(SNS_TYPE_GYRO, sensor) < 0)
 		dev_err(&sensor->client->dev,
 				"gyr: failed to start/cancel timer\n");
-
 	return HRTIMER_NORESTART;
 }
 
 static enum hrtimer_restart accel_timer_handle(struct hrtimer *hrtimer)
 {
 	struct mpu6050_sensor *sensor;
-
 	sensor = container_of(hrtimer, struct mpu6050_sensor, accel_timer);
 	sensor->accel_wkp_flag = 1;
 	wake_up_interruptible(&sensor->accel_wq);
 	if (mpu6050_manage_polling(SNS_TYPE_ACCEL, sensor) < 0)
 		dev_err(&sensor->client->dev,
 				"acc: failed to start/cancel timer\n");
-
 	return HRTIMER_NORESTART;
 }
 
@@ -875,7 +875,6 @@ static int gyro_poll_thread(void *data)
 			ktime_to_timespec(timestamp).tv_nsec);
 		input_sync(sensor->gyro_dev);
 	}
-
 	return 0;
 }
 
@@ -925,7 +924,7 @@ static int accel_poll_thread(void *data)
 	return 0;
 }
 
-/*
+/**
  *  mpu6050_set_lpa_freq() - set low power wakeup frequency.
  */
 static int mpu6050_set_lpa_freq(struct mpu6050_sensor *sensor, int lpa_freq)
@@ -1017,7 +1016,6 @@ static int mpu6050_switch_engine(struct mpu6050_sensor *sensor,
 
 error:
 	dev_err(&sensor->client->dev, "Fail to switch MPU engine\n");
-
 	return ret;
 }
 
@@ -1036,7 +1034,7 @@ static int mpu6050_init_engine(struct mpu6050_sensor *sensor)
 	return 0;
 }
 
-/*
+/**
  * mpu6050_set_power_mode() - set the power mode
  * @sensor: sensor data structure
  * @power_on: value to switch on/off of power, 1: normal power,
@@ -1131,13 +1129,13 @@ static int mpu6050_gyro_enable(struct mpu6050_sensor *sensor, bool on)
 			sensor->cfg.enable = 0;
 		}
 	}
-
 	return 0;
 }
 
-/*
+/**
  * mpu6050_restore_context() - update the sensor register context
  */
+
 static int mpu6050_restore_context(struct mpu6050_sensor *sensor)
 {
 	struct mpu_reg_map *reg;
@@ -1255,7 +1253,7 @@ exit:
 	return ret;
 }
 
-/*
+/**
  * mpu6050_reset_chip() - reset chip to default state
  */
 static void mpu6050_reset_chip(struct mpu6050_sensor *sensor)
@@ -1286,7 +1284,7 @@ static void mpu6050_reset_chip(struct mpu6050_sensor *sensor)
 			break;
 		}
 
-		udelay(MPU6050_RESET_SLEEP_US);
+		usleep(MPU6050_RESET_SLEEP_US);
 	}
 
 exit:
@@ -1410,7 +1408,6 @@ static int mpu6050_gyro_set_enable(struct mpu6050_sensor *sensor, bool enable)
 			}
 		} else {
 			ktime_t ktime;
-
 			ktime = ktime_set(0,
 					sensor->gyro_poll_ms * NSEC_PER_MSEC);
 			hrtimer_start(&sensor->gyro_timer, ktime,
@@ -1443,13 +1440,12 @@ static int mpu6050_gyro_set_enable(struct mpu6050_sensor *sensor, bool enable)
 
 exit:
 	mutex_unlock(&sensor->op_lock);
-
 	return ret;
 }
 
 /*
- * Set interrupt enabling bits to enable/disable specific type of interrupt.
- */
+  * Set interrupt enabling bits to enable/disable specific type of interrupt.
+  */
 static int mpu6050_set_interrupt(struct mpu6050_sensor *sensor,
 		const u8 mask, bool on)
 {
@@ -1482,13 +1478,12 @@ static int mpu6050_set_interrupt(struct mpu6050_sensor *sensor,
 			"Fail to set interrupt. ret=%d\n", ret);
 		return ret;
 	}
-
 	return 0;
 }
 
 /*
- * Enable/disable motion detection interrupt.
- */
+  * Enable/disable motion detection interrupt.
+  */
 static int mpu6050_set_motion_det(struct mpu6050_sensor *sensor, bool on)
 {
 	int ret;
@@ -1518,7 +1513,6 @@ static int mpu6050_set_motion_det(struct mpu6050_sensor *sensor, bool on)
 err_exit:
 	dev_err(&sensor->client->dev,
 			"Fail to set motion detection. ret=%d\n", ret);
-
 	return ret;
 }
 
@@ -1585,7 +1579,6 @@ err_exit:
 	dev_err(&sensor->client->dev,
 		"update sample div failed, div=%d, ret=%d\n",
 		div, ret);
-
 	return ret;
 }
 
@@ -1608,7 +1601,7 @@ static inline u64 mpu6050_get_sample_interval(struct mpu6050_sensor *sensor)
 	return interval_ns;
 }
 
-/*
+/**
  * mpu6050_flush_fifo() - flush fifo and send sensor event
  * @sensor: sensor device instance
  * Return 0 on success and returns a negative error code on failure.
@@ -1648,8 +1641,11 @@ static void mpu6050_flush_fifo(struct mpu6050_sensor *sensor)
 	mpu6050_set_fifo_start_time(sensor);
 
 	buf = kmalloc(cnt, GFP_KERNEL);
-	if (!buf)
+	if (!buf) {
+		dev_err(&client->dev,
+			"Allocate FIFO buffer error!\n");
 		return;
+	}
 
 	ret = mpu6050_read_reg(sensor->client, sensor->reg.fifo_r_w,
 			(u8 *)buf, cnt);
@@ -1714,9 +1710,10 @@ static void mpu6050_flush_fifo(struct mpu6050_sensor *sensor)
 
 exit:
 	kfree(buf);
+	return;
 }
 
-/*
+/**
  * mpu6050_set_fifo() - Configure and enable sensor FIFO
  * @sensor: sensor device instance
  * @en_accel: buffer accel event to fifo
@@ -1782,7 +1779,6 @@ static int mpu6050_set_fifo(struct mpu6050_sensor *sensor,
 
 err_exit:
 	dev_err(&client->dev, "Set fifo failed, ret=%d\n", ret);
-
 	return ret;
 }
 
@@ -1810,7 +1806,6 @@ static int mpu6050_gyro_set_poll_delay(struct mpu6050_sensor *sensor,
 
 	if (sensor->use_poll) {
 		ktime_t ktime;
-
 		ret = hrtimer_try_to_cancel(&sensor->gyro_timer);
 		ktime = ktime_set(0,
 				sensor->gyro_poll_ms * NSEC_PER_MSEC);
@@ -1825,7 +1820,6 @@ static int mpu6050_gyro_set_poll_delay(struct mpu6050_sensor *sensor,
 
 exit:
 	mutex_unlock(&sensor->op_lock);
-
 	return ret;
 }
 
@@ -1858,7 +1852,6 @@ static int mpu6050_gyro_cdev_flush(struct sensors_classdev *sensors_cdev)
 		EV_SYN, SYN_CONFIG, sensor->flush_count++);
 	input_sync(sensor->gyro_dev);
 	mutex_unlock(&sensor->op_lock);
-
 	return 0;
 }
 
@@ -1877,11 +1870,10 @@ static int mpu6050_gyro_cdev_set_latency(struct sensors_classdev *sensors_cdev,
 
 	sensor->gyro_latency_ms = max_latency;
 	mutex_unlock(&sensor->op_lock);
-
 	return 0;
 }
 
-/*
+/**
  * mpu6050_gyro_attr_get_polling_delay() - get the sampling rate
  */
 static ssize_t mpu6050_gyro_attr_get_polling_delay(struct device *dev,
@@ -1892,11 +1884,10 @@ static ssize_t mpu6050_gyro_attr_get_polling_delay(struct device *dev,
 	struct mpu6050_sensor *sensor = dev_get_drvdata(dev);
 
 	val = sensor ? sensor->gyro_poll_ms : 0;
-
 	return snprintf(buf, 8, "%d\n", val);
 }
 
-/*
+/**
  * mpu6050_gyro_attr_set_polling_delay() - set the sampling rate
  */
 static ssize_t mpu6050_gyro_attr_set_polling_delay(struct device *dev,
@@ -1923,7 +1914,7 @@ static ssize_t mpu6050_gyro_attr_get_enable(struct device *dev,
 	return snprintf(buf, 4, "%d\n", sensor->cfg.gyro_enable);
 }
 
-/*
+/**
  * mpu6050_gyro_attr_set_enable() -
  *    Set/get enable function is just needed by sensor HAL.
  */
@@ -1959,30 +1950,25 @@ static int create_gyro_sysfs_interfaces(struct device *dev)
 {
 	int i;
 	int err;
-
 	for (i = 0; i < ARRAY_SIZE(gyro_attr); i++) {
 		err = device_create_file(dev, gyro_attr + i);
 		if (err)
 			goto error;
 	}
-
 	return 0;
 
 error:
 	for (; i >= 0; i--)
 		device_remove_file(dev, gyro_attr + i);
 	dev_err(dev, "Unable to create interface\n");
-
 	return err;
 }
 
 static int remove_gyro_sysfs_interfaces(struct device *dev)
 {
 	int i;
-
 	for (i = 0; i < ARRAY_SIZE(gyro_attr); i++)
 		device_remove_file(dev, gyro_attr + i);
-
 	return 0;
 }
 
@@ -2043,7 +2029,6 @@ static int mpu6050_accel_enable(struct mpu6050_sensor *sensor, bool on)
 			sensor->cfg.enable = 0;
 		}
 	}
-
 	return 0;
 }
 
@@ -2165,7 +2150,6 @@ static int mpu6050_accel_set_enable(struct mpu6050_sensor *sensor, bool enable)
 			}
 		} else {
 			ktime_t ktime;
-
 			ktime = ktime_set(0,
 					sensor->accel_poll_ms * NSEC_PER_MSEC);
 			hrtimer_start(&sensor->accel_timer, ktime,
@@ -2225,7 +2209,6 @@ static int mpu6050_accel_set_poll_delay(struct mpu6050_sensor *sensor,
 
 	if (sensor->use_poll) {
 		ktime_t ktime;
-
 		ret = hrtimer_try_to_cancel(&sensor->accel_timer);
 		ktime = ktime_set(0,
 				sensor->accel_poll_ms * NSEC_PER_MSEC);
@@ -2239,7 +2222,6 @@ static int mpu6050_accel_set_poll_delay(struct mpu6050_sensor *sensor,
 
 exit:
 	mutex_unlock(&sensor->op_lock);
-
 	return ret;
 }
 
@@ -2279,7 +2261,6 @@ static int mpu6050_accel_cdev_flush(struct sensors_classdev *sensors_cdev)
 	input_event(sensor->accel_dev,
 		EV_SYN, SYN_CONFIG, sensor->flush_count++);
 	input_sync(sensor->accel_dev);
-
 	return 0;
 }
 
@@ -2290,14 +2271,13 @@ static int mpu6050_accel_cdev_set_latency(struct sensors_classdev *sensors_cdev,
 			struct mpu6050_sensor, accel_cdev);
 
 	mutex_lock(&sensor->op_lock);
-	if (max_latency <= sensor->accel_poll_ms)
+	if (max_latency <= sensor->accel_poll_ms) {
 		sensor->batch_accel = false;
-	else
+	} else {
 		sensor->batch_accel = true;
-
+	}
 	sensor->accel_latency_ms = max_latency;
 	mutex_unlock(&sensor->op_lock);
-
 	return 0;
 }
 
@@ -2312,7 +2292,6 @@ static int mpu6050_accel_cdev_enable_wakeup(
 		return -ENODEV;
 
 	sensor->motion_det_en = enable;
-
 	return 0;
 }
 
@@ -2439,7 +2418,6 @@ static int mpu6050_accel_calibration(struct sensors_classdev *sensors_cdev,
 
 exit:
 	mutex_unlock(&sensor->op_lock);
-
 	return ret;
 }
 
@@ -2461,7 +2439,6 @@ static int mpu6050_write_accel_cal_params(struct sensors_classdev *sensors_cdev,
 	sensor->acc_use_cal = true;
 
 	mutex_unlock(&sensor->op_lock);
-
 	return 0;
 }
 
@@ -2476,7 +2453,7 @@ static void mpu6050_acc_data_process(struct mpu6050_sensor *sensor)
 	}
 }
 
-/*
+/**
  * mpu6050_accel_attr_get_polling_delay() - get the sampling rate
  */
 static ssize_t mpu6050_accel_attr_get_polling_delay(struct device *dev,
@@ -2487,11 +2464,10 @@ static ssize_t mpu6050_accel_attr_get_polling_delay(struct device *dev,
 	struct mpu6050_sensor *sensor = dev_get_drvdata(dev);
 
 	val = sensor ? sensor->accel_poll_ms : 0;
-
 	return snprintf(buf, 8, "%d\n", val);
 }
 
-/*
+/**
  * mpu6050_accel_attr_set_polling_delay() - set the sampling rate
  */
 static ssize_t mpu6050_accel_attr_set_polling_delay(struct device *dev,
@@ -2518,7 +2494,7 @@ static ssize_t mpu6050_accel_attr_get_enable(struct device *dev,
 	return snprintf(buf, 4, "%d\n", sensor->cfg.accel_enable);
 }
 
-/*
+/**
  * mpu6050_accel_attr_set_enable() -
  *    Set/get enable function is just needed by sensor HAL.
  */
@@ -2581,7 +2557,6 @@ static ssize_t mpu6050_accel_attr_get_data(struct device *dev,
 	dev_info(dev, "read addr(0x%x)=0x%x\n", mpu6050_address, ret);
 	if (ret >= 0 && ret <= 255)
 		mpu6050_data = ret;
-
 	return snprintf(buf, 8, "0x%x\n", ret);
 }
 
@@ -2642,30 +2617,25 @@ static int create_accel_sysfs_interfaces(struct device *dev)
 {
 	int i;
 	int err;
-
 	for (i = 0; i < ARRAY_SIZE(accel_attr); i++) {
 		err = device_create_file(dev, accel_attr + i);
 		if (err)
 			goto error;
 	}
-
 	return 0;
 
 error:
 	for (; i >= 0; i--)
 		device_remove_file(dev, accel_attr + i);
 	dev_err(dev, "Unable to create interface\n");
-
 	return err;
 }
 
 static int remove_accel_sysfs_interfaces(struct device *dev)
 {
 	int i;
-
 	for (i = 0; i < ARRAY_SIZE(accel_attr); i++)
 		device_remove_file(dev, accel_attr + i);
-
 	return 0;
 }
 
@@ -2692,7 +2662,7 @@ static void setup_mpu6050_reg(struct mpu_reg_map *reg)
 	reg->pwr_mgmt_2		= REG_PWR_MGMT_2;
 };
 
-/*
+/**
  * mpu_check_chip_type() - check and setup chip type.
  */
 static int mpu_check_chip_type(struct mpu6050_sensor *sensor,
@@ -2739,11 +2709,10 @@ static int mpu_check_chip_type(struct mpu6050_sensor *sensor,
 			return -ENODEV;
 		}
 	}
-
 	return 0;
 }
 
-/*
+/**
  *  mpu6050_init_config() - Initialize hardware, disable FIFO.
  *  @indio_dev:	Device driver instance.
  *  Initial configuration:
@@ -2880,6 +2849,7 @@ static void mpu6050_pinctrl_state(struct mpu6050_sensor *sensor,
 					MPU6050_PINCTRL_SUSPEND, ret);
 		}
 	}
+	return;
 }
 
 #ifdef CONFIG_OF
@@ -2939,7 +2909,7 @@ static int mpu6050_parse_dt(struct device *dev,
 }
 #endif
 
-/*
+/**
  * mpu6050_probe() - device detection callback
  * @client: i2c client of found device
  * @id: id match information
@@ -2967,8 +2937,10 @@ static int mpu6050_probe(struct i2c_client *client,
 	}
 	sensor = devm_kzalloc(&client->dev, sizeof(struct mpu6050_sensor),
 			GFP_KERNEL);
-	if (!sensor)
+	if (!sensor) {
+		dev_err(&client->dev, "Failed to allocate driver data\n");
 		return -ENOMEM;
+	}
 
 	sensor->client = client;
 	sensor->dev = &client->dev;
@@ -2978,6 +2950,7 @@ static int mpu6050_probe(struct i2c_client *client,
 		pdata = devm_kzalloc(&client->dev,
 			sizeof(struct mpu6050_platform_data), GFP_KERNEL);
 		if (!pdata) {
+			dev_err(&client->dev, "Failed to allcated memory\n");
 			ret = -ENOMEM;
 			goto err_free_devmem;
 		}
@@ -3269,11 +3242,10 @@ err_free_enable_gpio:
 err_free_devmem:
 	devm_kfree(&client->dev, sensor);
 	dev_err(&client->dev, "Probe device return error%d\n", ret);
-
 	return ret;
 }
 
-/*
+/**
  * mpu6050_remove() - remove a sensor
  * @client: i2c client of sensor being removed
  *
@@ -3310,7 +3282,6 @@ static void mpu6050_resume_work_fn(struct work_struct *work)
 {
 	struct mpu6050_sensor *sensor;
 	int ret = 0;
-
 	sensor = container_of(work,
 			struct mpu6050_sensor, resume_work);
 
@@ -3364,7 +3335,6 @@ static void mpu6050_resume_work_fn(struct work_struct *work)
 
 		if (sensor->use_poll) {
 			ktime_t ktime;
-
 			ktime = ktime_set(0,
 					sensor->gyro_poll_ms * NSEC_PER_MSEC);
 			hrtimer_start(&sensor->gyro_timer, ktime,
@@ -3381,7 +3351,6 @@ static void mpu6050_resume_work_fn(struct work_struct *work)
 
 		if (sensor->use_poll) {
 			ktime_t ktime;
-
 			ktime = ktime_set(0,
 					sensor->accel_poll_ms * NSEC_PER_MSEC);
 			hrtimer_start(&sensor->accel_timer, ktime,
@@ -3398,7 +3367,7 @@ exit:
 }
 
 #ifdef CONFIG_PM
-/*
+/**
  * mpu6050_suspend() - called on device suspend
  * @dev: device being suspended
  *
@@ -3434,9 +3403,9 @@ static int mpu6050_suspend(struct device *dev)
 				"Enable motion detection success\n");
 			goto exit;
 		}
-		/* if motion detection config does not success,
-		 * not exit suspend and sensor will be power off.
-		 */
+		/*  if motion detection config does not success,
+		  *  not exit suspend and sensor will be power off.
+		  */
 	}
 
 	if (!sensor->use_poll) {
@@ -3460,10 +3429,10 @@ exit:
 	mutex_unlock(&sensor->op_lock);
 	dev_dbg(&client->dev, "Suspend completed, ret=%d\n", ret);
 
-	return ret;
+	return 0;
 }
 
-/*
+/**
  * mpu6050_resume() - called on device resume
  * @dev: device being resumed
  *

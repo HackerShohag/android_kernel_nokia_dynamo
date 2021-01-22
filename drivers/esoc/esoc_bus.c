@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,19 +32,10 @@ esoc_link_show(struct device *dev, struct device_attribute *attr,
 				to_esoc_clink(dev)->link_name);
 }
 
-static ssize_t
-esoc_link_info_show(struct device *dev, struct device_attribute *attr,
-							char *buf)
-{
-	return snprintf(buf, ESOC_LINK_LEN, "%s",
-				to_esoc_clink(dev)->link_info);
-}
-
 static struct device_attribute esoc_clink_attrs[] = {
 
 	__ATTR_RO(esoc_name),
 	__ATTR_RO(esoc_link),
-	__ATTR_RO(esoc_link_info),
 	__ATTR_NULL,
 };
 
@@ -69,7 +60,7 @@ static int esoc_bus_probe(struct device *dev)
 	struct esoc_clink *esoc_clink = to_esoc_clink(dev);
 	struct esoc_drv *esoc_drv = to_esoc_drv(dev->driver);
 
-	ret = esoc_drv->probe(esoc_clink, esoc_drv);
+	ret = esoc_drv->probe(esoc_clink);
 	if (ret) {
 		pr_err("failed to probe %s dev\n", esoc_clink->name);
 		return ret;
@@ -189,7 +180,7 @@ int esoc_clink_register_ssr(struct esoc_clink *esoc_clink)
 	snprintf(subsys_name, len, "esoc%d", esoc_clink->id);
 	esoc_clink->subsys.name = subsys_name;
 	esoc_clink->dev.of_node = esoc_clink->np;
-	esoc_clink->subsys.dev = &esoc_clink->pdev->dev;
+	esoc_clink->subsys.dev = &esoc_clink->dev;
 	esoc_clink->subsys_dev = subsys_register(&esoc_clink->subsys);
 	if (IS_ERR(esoc_clink->subsys_dev)) {
 		dev_err(&esoc_clink->dev, "failed to register ssr node\n");

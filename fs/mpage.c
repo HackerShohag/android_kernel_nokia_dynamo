@@ -28,15 +28,6 @@
 #include <linux/backing-dev.h>
 #include <linux/pagevec.h>
 #include <linux/cleancache.h>
-#include "internal.h"
-
-#define CREATE_TRACE_POINTS
-#include <trace/events/android_fs.h>
-
-EXPORT_TRACEPOINT_SYMBOL(android_fs_datawrite_start);
-EXPORT_TRACEPOINT_SYMBOL(android_fs_datawrite_end);
-EXPORT_TRACEPOINT_SYMBOL(android_fs_dataread_start);
-EXPORT_TRACEPOINT_SYMBOL(android_fs_dataread_end);
 
 /*
  * I/O completion handler for multipage BIOs.
@@ -52,49 +43,37 @@ EXPORT_TRACEPOINT_SYMBOL(android_fs_dataread_end);
  */
 static void mpage_end_io(struct bio *bio, int err)
 {
-	struct bio_vec *bv;
-	int i;
+	const int uptodate = test_bit(BIO_UPTODATE, &bio->bi_flags);
+	struct bio_vec *bvec = bio->bi_io_vec + bio->bi_vcnt - 1;
 
-	if (trace_android_fs_dataread_end_enabled() &&
-	    (bio_data_dir(bio) == READ)) {
-		struct page *first_page = bio->bi_io_vec[0].bv_page;
+	do {
+		struct page *page = bvec->bv_page;
 
-		if (first_page != NULL)
-			trace_android_fs_dataread_end(first_page->mapping->host,
-						      page_offset(first_page),
-						      bio->bi_iter.bi_size);
-	}
-
-	bio_for_each_segment_all(bv, bio, i) {
-		struct page *page = bv->bv_page;
-		page_endio(page, bio_data_dir(bio), err);
-	}
-
+		if (--bvec >= bio->bi_io_vec)
+			prefetchw(&bvec->bv_page->flags);
+		if (bio_data_dir(bio) == READ) {
+			if (uptodate) {
+				SetPageUptodate(page);
+			} else {
+				ClearPageUptodate(page);
+				SetPageError(page);
+			}
+			unlock_page(page);
+		} else { /* bio_data_dir(bio) == WRITE */
+			if (!uptodate) {
+				SetPageError(page);
+				if (page->mapping)
+					set_bit(AS_EIO, &page->mapping->flags);
+			}
+			end_page_writeback(page);
+		}
+	} while (bvec >= bio->bi_io_vec);
 	bio_put(bio);
 }
 
 static struct bio *mpage_bio_submit(int rw, struct bio *bio)
 {
-	if (trace_android_fs_dataread_start_enabled() && (rw == READ)) {
-		struct page *first_page = bio->bi_io_vec[0].bv_page;
-
-		if (first_page != NULL) {
-			char *path, pathbuf[MAX_TRACE_PATHBUF_LEN];
-
-			path = android_fstrace_get_pathname(pathbuf,
-						    MAX_TRACE_PATHBUF_LEN,
-						    first_page->mapping->host);
-			trace_android_fs_dataread_start(
-				first_page->mapping->host,
-				page_offset(first_page),
-				bio->bi_iter.bi_size,
-				current->pid,
-				path,
-				current->comm);
-		}
-	}
 	bio->bi_end_io = mpage_end_io;
-	guard_bio_eod(rw, bio);
 	submit_bio(rw, bio);
 	return NULL;
 }
@@ -115,7 +94,7 @@ mpage_alloc(struct block_device *bdev,
 
 	if (bio) {
 		bio->bi_bdev = bdev;
-		bio->bi_iter.bi_sector = first_sector;
+		bio->bi_sector = first_sector;
 	}
 	return bio;
 }
@@ -307,11 +286,6 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 
 alloc_new:
 	if (bio == NULL) {
-		if (first_hole == blocks_per_page) {
-			if (!bdev_read_page(bdev, blocks[0] << (blkbits - 9),
-								page))
-				goto out;
-		}
 		bio = mpage_alloc(bdev, blocks[0] << (blkbits - 9),
 			  	min_t(int, nr_pages, bio_get_nr_vecs(bdev)),
 				GFP_KERNEL);
@@ -466,35 +440,6 @@ struct mpage_data {
 	unsigned use_writepage;
 };
 
-/*
- * We have our BIO, so we can now mark the buffers clean.  Make
- * sure to only clean buffers which we know we'll be writing.
- */
-static void clean_buffers(struct page *page, unsigned first_unmapped)
-{
-	unsigned buffer_counter = 0;
-	struct buffer_head *bh, *head;
-	if (!page_has_buffers(page))
-		return;
-	head = page_buffers(page);
-	bh = head;
-
-	do {
-		if (buffer_counter++ == first_unmapped)
-			break;
-		clear_buffer_dirty(bh);
-		bh = bh->b_this_page;
-	} while (bh != head);
-
-	/*
-	 * we cannot drop the bh if the page is not uptodate or a concurrent
-	 * readpage would fail to serialize with the bh and it would read from
-	 * disk before we reach the platter.
-	 */
-	if (buffer_heads_over_limit && PageUptodate(page))
-		try_to_free_buffers(page);
-}
-
 static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 		      void *data)
 {
@@ -630,13 +575,6 @@ page_is_mapped:
 
 alloc_new:
 	if (bio == NULL) {
-		if (first_unmapped == blocks_per_page) {
-			if (!bdev_write_page(bdev, blocks[0] << (blkbits - 9),
-								page, wbc)) {
-				clean_buffers(page, first_unmapped);
-				goto out;
-			}
-		}
 		bio = mpage_alloc(bdev, blocks[0] << (blkbits - 9),
 				bio_get_nr_vecs(bdev), GFP_NOFS|__GFP_HIGH);
 		if (bio == NULL)
@@ -654,7 +592,30 @@ alloc_new:
 		goto alloc_new;
 	}
 
-	clean_buffers(page, first_unmapped);
+	/*
+	 * OK, we have our BIO, so we can now mark the buffers clean.  Make
+	 * sure to only clean buffers which we know we'll be writing.
+	 */
+	if (page_has_buffers(page)) {
+		struct buffer_head *head = page_buffers(page);
+		struct buffer_head *bh = head;
+		unsigned buffer_counter = 0;
+
+		do {
+			if (buffer_counter++ == first_unmapped)
+				break;
+			clear_buffer_dirty(bh);
+			bh = bh->b_this_page;
+		} while (bh != head);
+
+		/*
+		 * we cannot drop the bh if the page is not uptodate
+		 * or a concurrent readpage would fail to serialize with the bh
+		 * and it would read from disk before we reach the platter.
+		 */
+		if (buffer_heads_over_limit && PageUptodate(page))
+			try_to_free_buffers(page);
+	}
 
 	BUG_ON(PageWriteback(page));
 	set_page_writeback(page);

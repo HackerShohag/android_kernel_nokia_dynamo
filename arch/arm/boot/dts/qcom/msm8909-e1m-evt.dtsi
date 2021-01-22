@@ -1,4 +1,4 @@
-﻿/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,22 +12,16 @@
 
 #include "msm8909.dtsi"
 #include "msm8909-e1m-pinctrl-v1.dtsi"
-#include "msm8909-regulator.dtsi"
 #include "components/camera/msm8909-e1m-evt-camera.dtsi"
-#include "components/memmap/memmap_e1m_evt.dtsi"
 
-//&tlmm_pinmux {
+&tlmm_pinmux {
 	//FIH, Design specify pin ctrl for each driver
-//	/include/ "components/pinctrl/pinctrl_e1m_evb.dtsi"
-//};
-
+	/include/ "components/pinctrl/pinctrl_e1m_evb.dtsi"
+};
 
 &soc {
-
-	//FIH, Design specify pin ctrl for each driver
-
 	//AlanHZChang, add for memory hole setting
-//
+	/include/ "components/memmap/memmap_e1m_evt.dtsi"
 	/include/ "components/fih/common_info_fao_v1.dtsi"
 
 	/* SW4-HL-Display-BringUpNT35521-00*{_20150224 */
@@ -37,7 +31,6 @@
 		/include/ "components/display/boost_converter_nt50358_i2c_0x3e.dtsi"
 	};
 	/* SW4-HL-Display-BringUpNT35521-00*}_20150224 */
-
 
 	i2c@78b9000 { /* BLSP1 QUP5 */ /* For TouchPanel */
 	//	/include/ "components/touch/touch_synaptics_i2c_0x20_v0.dtsi"
@@ -51,7 +44,7 @@
 		/include/ "components/nfc/nfc_nxp_pn547_i2c_0x28_v0.dtsi"
 
 	};
-	
+
 	i2c@78b5000 { /* BLSP1 QUP1 */ /* For Sensor */
 		/include/ "components/sensors/gsensor_bma2x2_i2c_0x10_v0.dtsi"
 		/include/ "components/sensors/ecompass_bmm050_i2c_0x12_v0.dtsi"
@@ -85,28 +78,19 @@
 		};
 	};
 
-	sound {
-		compatible = "qcom,msm8952-audio-codec";
-		qcom,model = "msm8909-snd-card-e1m";		    
-		reg = <0x7702000 0x4>,
-		      <0x7702004 0x4>,
-		      <0x7702008 0x4>;
-		reg-names = "csr_gp_io_mux_mic_ctl",
-			    "csr_gp_io_mux_spkr_ctl",
-			    "csr_gp_io_lpaif_pri_pcm_pri_mode_muxsel";
-			    
+	audio_codec: sound {
+		compatible = "qcom,msm8x16-audio-codec";
+		qcom,model = "msm8909-snd-card-e1m";
 		qcom,msm-snd-card-id = <0>;
 		qcom,msm-codec-type = "internal";
-		qcom,msm-ext-pa = "none";
+		qcom,msm-ext-pa = "primary";
 		qcom,msm-mclk-freq = <9600000>;
 		qcom,msm-mbhc-hphl-swh = <1>;
 		qcom,msm-mbhc-gnd-swh = <0>;
-		qcom,msm-spk-ext-pa = <&msm_gpio 92 0>;
-		qcom,msm-hp-switch-en = <&msm_gpio 22 0>;
+	  qcom,msm-spk-ext-pa = <&msm_gpio 92 0>;
+	  qcom,msm-hp-switch-en = <&msm_gpio 22 0>;
 		qcom,msm-hs-micbias-type = "internal";
 		qcom,msm-micbias1-ext-cap;
-		qcom,msm-micbias2-ext-cap;
-		qcom,split-a2dp;
 		qcom,audio-routing =
 			"RX_BIAS", "MCLK",
 			"SPK_RX_BIAS", "MCLK",
@@ -117,60 +101,56 @@
 			"AMIC1", "MIC BIAS External",
 			"AMIC2", "MIC BIAS Internal2",
 			"AMIC3", "MIC BIAS External";
-		qcom,msm-gpios =
-			"pri_i2s",
-			"us_eu_gpio";
-		qcom,pinctrl-names =
-			"all_off",
-			"pri_i2s_act",
-			"us_eu_gpio_act",
-			"pri_i2s_us_eu_gpio_act";
-		pinctrl-names =
-			"all_off",
-			"pri_i2s_act",
-			"us_eu_gpio_act",
-			"pri_i2s_us_eu_gpio_act";
-		pinctrl-0 = <&cdc_pdm_lines_sus &cross_conn_det_sus
-							&vdd_spkdrv_sus>;
-		pinctrl-1 = <&cdc_pdm_lines_act &cross_conn_det_sus
-							&vdd_spkdrv_act>;
-		pinctrl-2 = <&cdc_pdm_lines_sus &cross_conn_det_act
-							&vdd_spkdrv_sus>;
-		pinctrl-3 = <&cdc_pdm_lines_act &cross_conn_det_act
-							&vdd_spkdrv_act>;
-		qcom,cdc-us-euro-gpios = <&msm_gpio 97 0>;
-		asoc-platform = <&pcm0>, <&pcm1>, <&pcm2>, <&voip>, <&voice>,
+		pinctrl-names = "cdc_lines_act",
+				"cdc_lines_sus",
+				"ear_ext_boost_act",
+				"ear_ext_boost_sus",
+				"ext_spk_gpio_act",
+				"ext_spk_gpio_sus",
+				"hp_switch_gpio_act",
+				"hp_switch_gpio_sus";
+		pinctrl-0 = <&cdc_pdm_lines_act>;
+		pinctrl-1 = <&cdc_pdm_lines_sus>;
+		pinctrl-2 = <&ear_ext_boost_act>;
+		pinctrl-3 = <&ear_ext_boost_sus>;
+	        pinctrl-4 = <&ext_spk_fih_act>;
+	        pinctrl-5 = <&ext_spk_fih_sus>;
+	        pinctrl-6 = <&hp_sw_fih_act>;
+	        pinctrl-7 = <&hp_sw_fih_sus>;
+		asoc-platform = <&pcm0>, <&pcm1>, <&voip>, <&voice>,
 				<&loopback>, <&compress>, <&hostless>,
 				<&afe>, <&lsm>, <&routing>, <&lpa>,
 				<&voice_svc>;
 		asoc-platform-names = "msm-pcm-dsp.0", "msm-pcm-dsp.1",
-				"msm-pcm-dsp.2", "msm-voip-dsp",
-				"msm-pcm-voice", "msm-pcm-loopback",
-				"msm-compress-dsp", "msm-pcm-hostless",
-				"msm-pcm-afe", "msm-lsm-client",
-				"msm-pcm-routing", "msm-pcm-lpa",
+				"msm-voip-dsp", "msm-pcm-voice", "msm-pcm-loopback",
+				"msm-compress-dsp", "msm-pcm-hostless", "msm-pcm-afe",
+				"msm-lsm-client", "msm-pcm-routing", "msm-pcm-lpa",
 				"msm-voice-svc";
-		asoc-cpu = <&dai_pri_auxpcm>,
-				<&dai_mi2s0>, <&dai_mi2s1>, <&dai_mi2s2>,
-				<&dai_mi2s3>, <&dai_mi2s5>, <&dai_mi2s6>,
-				<&bt_sco_rx>, <&bt_sco_tx>, <&bt_a2dp_rx>,
-				<&int_fm_rx>, <&int_fm_tx>, <&afe_pcm_rx>,
-				<&afe_pcm_tx>, <&afe_proxy_rx>, <&afe_proxy_tx>,
-				<&incall_record_rx>, <&incall_record_tx>,
-				<&incall_music_rx>, <&incall_music_2_rx>;
-		asoc-cpu-names = "msm-dai-q6-auxpcm.1",
+		asoc-cpu = <&dai_pri_auxpcm>, <&dai_hdmi>,
+				<&dai_mi2s0>, <&dai_mi2s1>, <&dai_mi2s2>, <&dai_mi2s3>,
+				<&sb_0_rx>, <&sb_0_tx>, <&sb_1_rx>, <&sb_1_tx>,
+				<&sb_3_rx>, <&sb_3_tx>, <&sb_4_rx>, <&sb_4_tx>,
+				<&bt_sco_rx>, <&bt_sco_tx>,<&bt_a2dp_rx>,
+                                <&int_fm_rx>, <&int_fm_tx>,
+				<&afe_pcm_rx>, <&afe_pcm_tx>, <&afe_proxy_rx>, <&afe_proxy_tx>,
+				<&incall_record_rx>, <&incall_record_tx>, <&incall_music_rx>,
+				<&incall_music_2_rx>;
+		asoc-cpu-names = "msm-dai-q6-auxpcm.1", "msm-dai-q6-hdmi.8",
 				"msm-dai-q6-mi2s.0", "msm-dai-q6-mi2s.1",
 				"msm-dai-q6-mi2s.2", "msm-dai-q6-mi2s.3",
-				"msm-dai-q6-mi2s.5", "msm-dai-q6-mi2s.6",
+				"msm-dai-q6-dev.16384", "msm-dai-q6-dev.16385",
+				"msm-dai-q6-dev.16386", "msm-dai-q6-dev.16387",
+				"msm-dai-q6-dev.16390", "msm-dai-q6-dev.16391",
+				"msm-dai-q6-dev.16392", "msm-dai-q6-dev.16393",
 				"msm-dai-q6-dev.12288", "msm-dai-q6-dev.12289",
 				"msm-dai-q6-dev.12290", "msm-dai-q6-dev.12292",
-				"msm-dai-q6-dev.12293", "msm-dai-q6-dev.224",
+                                "msm-dai-q6-dev.12293", "msm-dai-q6-dev.224",
 				"msm-dai-q6-dev.225", "msm-dai-q6-dev.241",
 				"msm-dai-q6-dev.240", "msm-dai-q6-dev.32771",
 				"msm-dai-q6-dev.32772", "msm-dai-q6-dev.32773",
-				"msm-dai-q6-dev.32770";
+                                "msm-dai-q6-dev.32770";
 		asoc-codec = <&stub_codec>, <&pm8909_conga_dig>;
-		asoc-codec-names = "msm-stub-codec.1", "cajon_codec";
+		asoc-codec-names = "msm-stub-codec.1", "tombak_codec";
 	};
 };
 
@@ -237,102 +217,46 @@
 /* E1M{ */
 &dsi_ft8716_720_video {
 	qcom,cont-splash-enabled;
-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 };
 /* E1M} */
 
-&msm_gpio {
-	/include/ "components/pinctrl/pinctrl_e1m_evb.dtsi"
-	pmx_mdss {
-		mdss_dsi_active: mdss_dsi_active {
-			mux {
-				pins = "gpio25", "gpio96", "gpio17", "gpio23";
-			};
-			config {
-				pins = "gpio25", "gpio96", "gpio17", "gpio23";
-			};
-		};
-		mdss_dsi_suspend: mdss_dsi_suspend {
-			mux {
-				pins = "gpio25", "gpio96", "gpio17", "gpio23";
-			};
-			config {
-				pins = "gpio25", "gpio96", "gpio17", "gpio23";
-			};
-		};
-	};
-	pmx_mdss_te {
-		mdss_te_active: mdss_te_active {
-			mux {
-				pins = "gpio24";
-			};
-			config {
-				pins = "gpio24";
-			};
-		};
-		mdss_te_suspend: mdss_te_suspend {
-			mux {
-				pins = "gpio24";
-			};
-			config {
-				pins = "gpio24";
-			};
-		};
-	};
-	
-	pmx_mdss_id0id1 {
-		mdss_id0id1_active: mdss_id0id1_active {
-			mux {
-				pins = "gpio1", "gpio20";
-				function = "gpio";
-			};
-			config {
-				pins = "gpio1", "gpio20";
-				drive-strength = <2>; /* 2 MA */
-				bias-disable; /* no pull */
-				input-enable;   /* INPUT */
-			};
-		};
-		mdss_id0id1_suspend: mdss_id0id1_suspend {
-			mux {
-				pins = "gpio1", "gpio20";
-				function = "gpio";
-			};
-			config {
-				pins = "gpio1", "gpio20";
-				drive-strength = <2>; /* 2 MA */
-				bias-disable; /* no pull */
-				input-enable;   /* INPUT */
-			};
-		};
-	};	
-
-	pmx_mdss_bl {
-		mdss_bl_active: mdss_bl_active {
-			mux {
-				pins = "gpio16";
-				function = "gpio";
-			};
-			config {
-				pins = "gpio16";
-				drive-strength = <2>; /* 8 mA */
-				bias-disable = <0>; /* no pull */
-			};
-		};
-		mdss_bl_suspend: mdss_bl_suspend {
-			mux {
-				pins = "gpio16";
-				function = "gpio";
-			};
-			config {
-				pins = "gpio16";
-				drive-strength = <8>; /* 8 mA */
-				bias-disable = <0>; /* no pull */
-				output-low;
-			};
-		};
-	};	
+&pmx_mdss {
+	qcom,num-grp-pins = <4>;
+	/*
+		GPIO25 -> Reset
+		GPIO88 -> IOVDD Enable
+		GPIO17 -> VPN(+5.5V) Enable
+		GPIO23 -> VNN(-5.5V) Enable
+	*/
+	qcom,pins = <&gp 25>, <&gp 96>, <&gp 17>, <&gp 23>;
 };
+/* SW4-HL-Display-BringUpNT35521-00*}_20150224 */
+
+&pmx_mdss_te {
+	qcom,num-grp-pins = <1>;
+	qcom,pins = <&gp 24>;
+};
+
+/* SW4-HL-Display-ConfigLcmId0AndLcmId1AsInputNoPull-00+{_20150511 */
+&pmx_mdss_id0id1 {
+	/*
+		GPIO83 -> LCM ID0
+		GPIO82 -> LCM ID1
+	*/
+	qcom,pins = <&gp 1>, <&gp 20>;
+	qcom,num-grp-pins = <2>;
+};
+/* SW4-HL-Display-ConfigLcmId0AndLcmId1AsInputNoPull-00+}_20150511 */
+
+/* SW4-HL-FixBacklightAlwaysShowMaximumBrightnessWhenResume-00*{_20150311 */
+&pmx_mdss_bl {
+	qcom,num-grp-pins = <1>;
+	/*
+		GPIO16 -> Backlight Enable
+	*/
+	qcom,pins = <&gp 16>;
+};
+/* SW4-HL-FixBacklightAlwaysShowMaximumBrightnessWhenResume-00*}_20150311 */
 
 &mdss_dsi0 {
 	qcom,dsi-pref-prim-pan = <&dsi_ft8716_720_video>;	/* E1M */
@@ -366,10 +290,6 @@
 
 &qcom_tzlog {
 	status = "okay";
-};
-
-&qnand_1 {
-	status = "ok";
 };
 
 &sdhc_1 {
@@ -417,6 +337,7 @@
 	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
 	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &sdc2_cd_off>;
 
+
 	status = "ok";
 };
 
@@ -431,21 +352,24 @@
 	pinctrl-1 = <&setb_1 &setb_2 &setb_3 &setb_4 &setb_5 &setb_6 &setb_7
 		     &setb_8 &setb_9 &setb_10 &setb_11 &setb_12 &setb_13
 		     &setb_14 &setb_15 &setb_16 &setb_17 &setb_18>;
-	/* NIDnT */		     
-	pinctrl-2 = <&qdsd_cmd_swduart &qdsd_data0_swduart
-		     &qdsd_data1_swduart &qdsd_data2_swduart
-		     &qdsd_data3_swduart>;
-	pinctrl-3 = <&qdsd_clk_swdtrc &qdsd_cmd_swdtrc
-		     &qdsd_data0_swdtrc &qdsd_data1_swdtrc
-		     &qdsd_data2_swdtrc &qdsd_data3_swdtrc>;
-	pinctrl-4 = <&qdsd_cmd_jtag &qdsd_data0_jtag
-		     &qdsd_data1_jtag &qdsd_data2_jtag
-		     &qdsd_data3_jtag>;
-	pinctrl-5 = <&qdsd_clk_spmi &qdsd_cmd_spmi
-		     &qdsd_data0_spmi &qdsd_data3_spmi>;
+	/* NIDnT */
+	pinctrl-2 = <&qdsd_clk_sdcard &qdsd_cmd_sdcard
+		    &qdsd_data0_sdcard &qdsd_data1_sdcard
+		    &qdsd_data2_sdcard &qdsd_data3_sdcard>;
+	pinctrl-3 = <&qdsd_clk_trace &qdsd_cmd_trace
+		    &qdsd_data0_trace &qdsd_data1_trace
+		    &qdsd_data2_trace &qdsd_data3_trace>;
+	pinctrl-4 = <&qdsd_cmd_swduart &qdsd_data0_swduart
+		    &qdsd_data1_swduart &qdsd_data2_swduart
+		    &qdsd_data3_swduart>;
+	pinctrl-5 = <&qdsd_clk_swdtrc &qdsd_cmd_swdtrc
+		    &qdsd_data0_swdtrc &qdsd_data1_swdtrc
+		    &qdsd_data2_swdtrc &qdsd_data3_swdtrc>;
 	pinctrl-6 = <&qdsd_cmd_jtag &qdsd_data0_jtag
 		    &qdsd_data1_jtag &qdsd_data2_jtag
 		    &qdsd_data3_jtag>;
 	pinctrl-7 = <&qdsd_clk_spmi &qdsd_cmd_spmi
-		    &qdsd_data0_spmi &qdsd_data3_spmi>;		     
+		    &qdsd_data0_spmi &qdsd_data3_spmi>;
 };
+
+

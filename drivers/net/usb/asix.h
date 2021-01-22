@@ -16,7 +16,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #ifndef _ASIX_H
@@ -27,6 +28,7 @@
 
 #include <linux/module.h>
 #include <linux/kmod.h>
+#include <linux/init.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
@@ -155,7 +157,19 @@
 
 #define AX_EEPROM_MAGIC		0xdeadbeef
 #define AX_EEPROM_LEN		0x200
+///@20170519 start
+/* NAMING CONSTANT DECLARATIONS */
+#define AX88772B_SIGNATURE	"AX88772B"
+#define AX88772B_DRV_NAME	"AX88772B"
 
+/* ioctl Command Definition */
+#define AX_PRIVATE		SIOCDEVPRIVATE
+
+/* private Command Definition */
+#define AX_SIGNATURE			0
+#define AX_READ_EEPROM			1
+#define AX_WRITE_EEPROM			2
+///@20170519 end
 /* This structure cannot exceed sizeof(unsigned long [5]) AKA 20 bytes */
 struct asix_data {
 	u8 multi_filter[AX_MCAST_FILTER_SIZE];
@@ -175,9 +189,15 @@ struct asix_rx_fixup_info {
 struct asix_common_private {
 	struct asix_rx_fixup_info rx_fixup_info;
 };
-
-extern const struct driver_info ax88172a_info;
-
+///@20170519 start
+typedef struct _AX_IOCTL_COMMAND {
+	unsigned short	ioctl_cmd;
+	unsigned char	sig[16];
+	unsigned short *buf;
+	unsigned short size;
+	unsigned char delay;
+}AX_IOCTL_COMMAND;
+///@20170519 end
 /* ASIX specific flags */
 #define FLAG_EEPROM_MAC		(1UL << 0)  /* init device MAC from eeprom */
 

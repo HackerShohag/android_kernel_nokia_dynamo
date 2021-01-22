@@ -67,10 +67,6 @@ static bool i8042_notimeout;
 module_param_named(notimeout, i8042_notimeout, bool, 0);
 MODULE_PARM_DESC(notimeout, "Ignore timeouts signalled by i8042");
 
-static bool i8042_kbdreset;
-module_param_named(kbdreset, i8042_kbdreset, bool, 0);
-MODULE_PARM_DESC(kbdreset, "Reset device connected to KBD port");
-
 #ifdef CONFIG_X86
 static bool i8042_dritek;
 module_param_named(dritek, i8042_dritek, bool, 0);
@@ -91,8 +87,6 @@ MODULE_PARM_DESC(debug, "Turn i8042 debugging mode on and off");
 #endif
 
 static bool i8042_bypass_aux_irq_test;
-static char i8042_kbd_firmware_id[128];
-static char i8042_aux_firmware_id[128];
 
 #include "i8042.h"
 
@@ -229,26 +223,21 @@ static int i8042_flush(void)
 {
 	unsigned long flags;
 	unsigned char data, str;
-	int count = 0;
-	int retval = 0;
+	int i = 0;
 
 	spin_lock_irqsave(&i8042_lock, flags);
 
-	while ((str = i8042_read_status()) & I8042_STR_OBF) {
-		if (count++ < I8042_BUFFER_SIZE) {
-			udelay(50);
-			data = i8042_read_data();
-			dbg("%02x <- i8042 (flush, %s)\n",
-			    data, str & I8042_STR_AUXDATA ? "aux" : "kbd");
-		} else {
-			retval = -EIO;
-			break;
-		}
+	while (((str = i8042_read_status()) & I8042_STR_OBF) && (i < I8042_BUFFER_SIZE)) {
+		udelay(50);
+		data = i8042_read_data();
+		i++;
+		dbg("%02x <- i8042 (flush, %s)\n",
+		    data, str & I8042_STR_AUXDATA ? "aux" : "kbd");
 	}
 
 	spin_unlock_irqrestore(&i8042_lock, flags);
 
-	return retval;
+	return i;
 }
 
 /*
@@ -397,10 +386,8 @@ static int i8042_start(struct serio *serio)
 {
 	struct i8042_port *port = serio->port_data;
 
-	spin_lock_irq(&i8042_lock);
 	port->exists = true;
-	spin_unlock_irq(&i8042_lock);
-
+	mb();
 	return 0;
 }
 
@@ -413,20 +400,16 @@ static void i8042_stop(struct serio *serio)
 {
 	struct i8042_port *port = serio->port_data;
 
-	spin_lock_irq(&i8042_lock);
 	port->exists = false;
-	port->serio = NULL;
-	spin_unlock_irq(&i8042_lock);
 
 	/*
-	 * We need to make sure that interrupt handler finishes using
-	 * our serio port before we return from this function.
 	 * We synchronize with both AUX and KBD IRQs because there is
 	 * a (very unlikely) chance that AUX IRQ is raised for KBD port
 	 * and vice versa.
 	 */
 	synchronize_irq(I8042_AUX_IRQ);
 	synchronize_irq(I8042_KBD_IRQ);
+	port->serio = NULL;
 }
 
 /*
@@ -543,7 +526,7 @@ static irqreturn_t i8042_interrupt(int irq, void *dev_id)
 
 	spin_unlock_irqrestore(&i8042_lock, flags);
 
-	if (likely(serio && !filtered))
+	if (likely(port->exists && !filtered))
 		serio_interrupt(serio, data, dfl);
 
  out:
@@ -800,16 +783,6 @@ static int __init i8042_check_aux(void)
 		return -1;
 
 /*
- * Reset keyboard (needed on some laptops to successfully detect
- * touchpad, e.g., some Gigabyte laptop models with Elantech
- * touchpads).
- */
-	if (i8042_kbdreset) {
-		pr_warn("Attempting to reset device connected to KBD port\n");
-		i8042_kbd_write(NULL, (unsigned char) 0xff);
-	}
-
-/*
  * Test AUX IRQ delivery to make sure BIOS did not grab the IRQ and
  * used it for a PCI card or somethig else.
  */
@@ -876,7 +849,7 @@ static int __init i8042_check_aux(void)
 
 static int i8042_controller_check(void)
 {
-	if (i8042_flush()) {
+	if (i8042_flush() == I8042_BUFFER_SIZE) {
 		pr_err("No controller found\n");
 		return -ENODEV;
 	}
@@ -1058,7 +1031,7 @@ static void i8042_controller_reset(bool force_reset)
 /*
  * i8042_panic_blink() will turn the keyboard LEDs on or off and is called
  * when kernel panics. Flashing LEDs is useful for users running X who may
- * not see the console and will help distinguishing panics from "real"
+ * not see the console and will help distingushing panics from "real"
  * lockups.
  *
  * Note that DELAY has a limit of 10ms so we will not get stuck here
@@ -1236,13 +1209,10 @@ static int __init i8042_create_kbd_port(void)
 	serio->start		= i8042_start;
 	serio->stop		= i8042_stop;
 	serio->close		= i8042_port_close;
-	serio->ps2_cmd_mutex	= &i8042_mutex;
 	serio->port_data	= port;
 	serio->dev.parent	= &i8042_platform_device->dev;
 	strlcpy(serio->name, "i8042 KBD port", sizeof(serio->name));
 	strlcpy(serio->phys, I8042_KBD_PHYS_DESC, sizeof(serio->phys));
-	strlcpy(serio->firmware_id, i8042_kbd_firmware_id,
-		sizeof(serio->firmware_id));
 
 	port->serio = serio;
 	port->irq = I8042_KBD_IRQ;
@@ -1264,20 +1234,15 @@ static int __init i8042_create_aux_port(int idx)
 	serio->write		= i8042_aux_write;
 	serio->start		= i8042_start;
 	serio->stop		= i8042_stop;
-	serio->ps2_cmd_mutex	= &i8042_mutex;
 	serio->port_data	= port;
 	serio->dev.parent	= &i8042_platform_device->dev;
 	if (idx < 0) {
 		strlcpy(serio->name, "i8042 AUX port", sizeof(serio->name));
 		strlcpy(serio->phys, I8042_AUX_PHYS_DESC, sizeof(serio->phys));
-		strlcpy(serio->firmware_id, i8042_aux_firmware_id,
-			sizeof(serio->firmware_id));
 		serio->close = i8042_port_close;
 	} else {
 		snprintf(serio->name, sizeof(serio->name), "i8042 AUX%d port", idx);
 		snprintf(serio->phys, sizeof(serio->phys), I8042_MUX_PHYS_DESC, idx + 1);
-		strlcpy(serio->firmware_id, i8042_aux_firmware_id,
-			sizeof(serio->firmware_id));
 	}
 
 	port->serio = serio;
@@ -1330,6 +1295,21 @@ static void i8042_unregister_ports(void)
 		}
 	}
 }
+
+/*
+ * Checks whether port belongs to i8042 controller.
+ */
+bool i8042_check_port_owner(const struct serio *port)
+{
+	int i;
+
+	for (i = 0; i < I8042_NUM_PORTS; i++)
+		if (i8042_ports[i].serio == port)
+			return true;
+
+	return false;
+}
+EXPORT_SYMBOL(i8042_check_port_owner);
 
 static void i8042_free_irqs(void)
 {

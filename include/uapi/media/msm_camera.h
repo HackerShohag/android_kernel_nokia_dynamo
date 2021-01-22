@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012, 2014-2016 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2012, 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,9 +13,17 @@
 #ifndef __UAPI_MSM_CAMERA_H
 #define __UAPI_MSM_CAMERA_H
 
+#ifdef MSM_CAMERA_BIONIC
+#include <sys/types.h>
+#endif
 #include <linux/videodev2.h>
 #include <linux/types.h>
 #include <linux/ioctl.h>
+#ifdef MSM_CAMERA_GCC
+#include <time.h>
+#else
+#include <linux/time.h>
+#endif
 
 #include <linux/msm_ion.h>
 
@@ -270,7 +278,7 @@ struct msm_mctl_post_proc_cmd {
 #define NUM_ACTUATOR_DIR 2
 #define MAX_ACTUATOR_SCENARIO 8
 #define MAX_ACTUATOR_REGION 5
-#define MAX_ACTUATOR_INIT_SET 12
+#define MAX_ACTUATOR_INIT_SET 32
 #define MAX_ACTUATOR_TYPE_SIZE 32
 #define MAX_ACTUATOR_REG_TBL_SIZE 8
 
@@ -682,7 +690,7 @@ struct outputCfg {
 #define OUTPUT_ALL_CHNLS 8
 #define OUTPUT_VIDEO_ALL_CHNLS 9
 #define OUTPUT_ZSL_ALL_CHNLS 10
-#define LAST_AXI_OUTPUT_MODE_ENUM OUTPUT_ZSL_ALL_CHNLS
+#define LAST_AXI_OUTPUT_MODE_ENUM = OUTPUT_ZSL_ALL_CHNLS
 
 #define OUTPUT_PRIM              BIT(8)
 #define OUTPUT_PRIM_ALL_CHNLS    BIT(9)
@@ -1694,8 +1702,6 @@ struct damping_params_t {
 enum actuator_type {
 	ACTUATOR_VCM,
 	ACTUATOR_PIEZO,
-	ACTUATOR_HVCM,
-	ACTUATOR_BIVCM,
 };
 
 enum msm_actuator_data_type {
@@ -1711,10 +1717,6 @@ enum msm_actuator_addr_type {
 enum msm_actuator_write_type {
 	MSM_ACTUATOR_WRITE_HW_DAMP,
 	MSM_ACTUATOR_WRITE_DAC,
-	MSM_ACTUATOR_WRITE,
-	MSM_ACTUATOR_WRITE_DIR_REG,
-	MSM_ACTUATOR_POLL,
-	MSM_ACTUATOR_READ_WRITE,
 };
 
 struct msm_actuator_reg_params_t {
@@ -1722,10 +1724,7 @@ struct msm_actuator_reg_params_t {
 	uint32_t hw_mask;
 	uint16_t reg_addr;
 	uint16_t hw_shift;
-	uint16_t data_type;
-	uint16_t addr_type;
-	uint16_t reg_data;
-	uint16_t delay;
+	uint16_t data_shift;
 };
 
 struct reg_settings_t {
@@ -2062,7 +2061,7 @@ struct msm_mctl_set_sdev_data {
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 22, void *)
 
 #define VIDIOC_MSM_AXI_RDI_COUNT_UPDATE \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, void *)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct rdi_count_msg)
 
 #define VIDIOC_MSM_VFE_INIT \
 	_IO('V', BASE_VIDIOC_PRIVATE + 24)
@@ -2156,12 +2155,68 @@ enum msm_cpp_frame_type {
 	MSM_CPP_REALTIME_FRAME,
 };
 
+struct msm_cpp_frame_strip_info {
+	int scale_v_en;
+	int scale_h_en;
+
+	int upscale_v_en;
+	int upscale_h_en;
+
+	int src_start_x;
+	int src_end_x;
+	int src_start_y;
+	int src_end_y;
+
+	/* Padding is required for upscaler because it does not
+	 * pad internally like other blocks, also needed for rotation
+	 * rotation expects all the blocks in the stripe to be the same size
+	 * Padding is done such that all the extra padded pixels
+	 * are on the right and bottom
+	*/
+	int pad_bottom;
+	int pad_top;
+	int pad_right;
+	int pad_left;
+
+	int v_init_phase;
+	int h_init_phase;
+	int h_phase_step;
+	int v_phase_step;
+
+	int prescale_crop_width_first_pixel;
+	int prescale_crop_width_last_pixel;
+	int prescale_crop_height_first_line;
+	int prescale_crop_height_last_line;
+
+	int postscale_crop_height_first_line;
+	int postscale_crop_height_last_line;
+	int postscale_crop_width_first_pixel;
+	int postscale_crop_width_last_pixel;
+
+	int dst_start_x;
+	int dst_end_x;
+	int dst_start_y;
+	int dst_end_y;
+
+	int bytes_per_pixel;
+	unsigned int source_address;
+	unsigned int destination_address;
+	unsigned int src_stride;
+	unsigned int dst_stride;
+	int rotate_270;
+	int horizontal_flip;
+	int vertical_flip;
+	int scale_output_width;
+	int scale_output_height;
+};
+
 struct msm_cpp_frame_info_t {
 	int32_t frame_id;
 	uint32_t inst_id;
 	uint32_t client_id;
 	enum msm_cpp_frame_type frame_type;
 	uint32_t num_strips;
+	struct msm_cpp_frame_strip_info *strip_info;
 };
 
 struct msm_ver_num_info {
@@ -2221,4 +2276,5 @@ struct msm_ver_num_info {
 	((handle & 0x80) ? (handle & 0x7F) : 0xFF)
 #define SET_VIDEO_INST_IDX(handle, data)	\
 	(handle |= (0x1 << 7) | (data & 0x7F))
-#endif
+
+#endif /* __UAPI_MSM_CAMERA_H */

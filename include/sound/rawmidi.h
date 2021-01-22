@@ -77,6 +77,7 @@ struct snd_rawmidi_runtime {
 	size_t xruns;		/* over/underruns counter */
 	/* misc */
 	spinlock_t lock;
+	struct mutex realloc_mutex;
 	wait_queue_head_t sleep;
 	/* event handler (new bytes, input only) */
 	void (*event)(struct snd_rawmidi_substream *substream);
@@ -157,18 +158,16 @@ void snd_rawmidi_set_ops(struct snd_rawmidi *rmidi, int stream,
 
 /* callbacks */
 
+void snd_rawmidi_receive_reset(struct snd_rawmidi_substream *substream);
 int snd_rawmidi_receive(struct snd_rawmidi_substream *substream,
 			const unsigned char *buffer, int count);
+void snd_rawmidi_transmit_reset(struct snd_rawmidi_substream *substream);
 int snd_rawmidi_transmit_empty(struct snd_rawmidi_substream *substream);
 int snd_rawmidi_transmit_peek(struct snd_rawmidi_substream *substream,
 			      unsigned char *buffer, int count);
 int snd_rawmidi_transmit_ack(struct snd_rawmidi_substream *substream, int count);
 int snd_rawmidi_transmit(struct snd_rawmidi_substream *substream,
 			 unsigned char *buffer, int count);
-int __snd_rawmidi_transmit_peek(struct snd_rawmidi_substream *substream,
-			      unsigned char *buffer, int count);
-int __snd_rawmidi_transmit_ack(struct snd_rawmidi_substream *substream,
-			       int count);
 
 /* main midi functions */
 

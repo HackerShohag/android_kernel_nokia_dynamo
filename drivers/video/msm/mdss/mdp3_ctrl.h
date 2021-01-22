@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, 2016-2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,16 +46,13 @@ struct mdp3_session_data {
 	ktime_t vsync_time;
 	struct timer_list vsync_timer;
 	int vsync_period;
-	struct kernfs_node *vsync_event_sd;
-	struct kernfs_node *bl_event_sd;
-	struct kernfs_node *ad_bl_event_sd;
-	struct kernfs_node *ad_event_sd;
+	struct sysfs_dirent *vsync_event_sd;
 	struct mdp_overlay overlay;
 	struct mdp_overlay req_overlay;
 	struct mdp3_buffer_queue bufq_in;
 	struct mdp3_buffer_queue bufq_out;
 	struct work_struct clk_off_work;
-
+//	struct work_struct dma_done_work;
 	struct kthread_work dma_done_work;
 	struct kthread_worker worker;
 	struct task_struct *thread;
@@ -74,24 +71,12 @@ struct mdp3_session_data {
 	bool in_splash_screen;
 	bool esd_recovery;
 	int dyn_pu_state; /* dynamic partial update status */
-	u32 bl_events;
 
 	bool dma_active;
 	struct completion dma_completion;
 	int (*wait_for_dma_done)(struct mdp3_session_data *session);
-
-	/* For retire fence */
-	struct sw_sync_timeline *vsync_timeline;
-	int retire_cnt;
-	struct work_struct retire_work;
 };
 
-void mdp3_bufq_deinit(struct mdp3_buffer_queue *bufq);
 int mdp3_ctrl_init(struct msm_fb_data_type *mfd);
-int mdp3_bufq_push(struct mdp3_buffer_queue *bufq,
-			struct mdp3_img_data *data);
-int mdp3_ctrl_get_source_format(u32 imgType);
-int mdp3_ctrl_get_pack_pattern(u32 imgType);
-int mdp3_ctrl_reset(struct msm_fb_data_type *mfd);
 
 #endif /* MDP3_CTRL_H */

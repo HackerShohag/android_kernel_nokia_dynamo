@@ -48,7 +48,6 @@
 #include <linux/suspend.h>
 #include <linux/notifier.h>
 #include <net/net_namespace.h>
-#include <net/sock.h>
 
 struct idletimer_tg_attr {
 	struct attribute attr;
@@ -74,7 +73,6 @@ struct idletimer_tg {
 	bool work_pending;
 	bool send_nl_msg;
 	bool active;
-	uid_t uid;
 	bool suspend_time_valid;
 };
 
@@ -120,8 +118,7 @@ static void notify_netlink_uevent(const char *iface, struct idletimer_tg *timer)
 	char iface_msg[NLMSG_MAX_SIZE];
 	char state_msg[NLMSG_MAX_SIZE];
 	char timestamp_msg[NLMSG_MAX_SIZE];
-	char uid_msg[NLMSG_MAX_SIZE];
-	char *envp[] = { iface_msg, state_msg, timestamp_msg, uid_msg, NULL };
+	char *envp[] = { iface_msg, state_msg, timestamp_msg, NULL };
 	int res;
 	struct timespec ts;
 	uint64_t time_ns;
@@ -144,16 +141,6 @@ static void notify_netlink_uevent(const char *iface, struct idletimer_tg *timer)
 		return;
 	}
 
-	if (state) {
-		res = snprintf(uid_msg, NLMSG_MAX_SIZE, "UID=%u", timer->uid);
-		if (NLMSG_MAX_SIZE <= res)
-			pr_err("message too long (%d)", res);
-	} else {
-		res = snprintf(uid_msg, NLMSG_MAX_SIZE, "UID=");
-		if (NLMSG_MAX_SIZE <= res)
-			pr_err("message too long (%d)", res);
-	}
-
 	time_ns = timespec_to_ns(&ts);
 	res = snprintf(timestamp_msg, NLMSG_MAX_SIZE, "TIME_NS=%llu", time_ns);
 	if (NLMSG_MAX_SIZE <= res) {
@@ -161,8 +148,7 @@ static void notify_netlink_uevent(const char *iface, struct idletimer_tg *timer)
 		pr_err("message too long (%d)", res);
 	}
 
-	pr_debug("putting nlmsg: <%s> <%s> <%s> <%s>\n", iface_msg, state_msg,
-		 timestamp_msg, uid_msg);
+	pr_debug("putting nlmsg: <%s> <%s>\n", iface_msg, state_msg);
 	kobject_uevent_env(idletimer_tg_kobj, KOBJ_CHANGE, envp);
 	return;
 
@@ -292,7 +278,6 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 		goto out;
 	}
 
-	sysfs_attr_init(&info->timer->attr.attr);
 	info->timer->attr.attr.name = kstrdup(info->label, GFP_KERNEL);
 	if (!info->timer->attr.attr.name) {
 		ret = -ENOMEM;
@@ -306,8 +291,6 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 		pr_debug("couldn't add file to sysfs");
 		goto out_free_attr;
 	}
-	/* notify userspace */
-	kobject_uevent(idletimer_tg_kobj, KOBJ_ADD);
 
 	list_add(&info->timer->entry, &idletimer_tg_list);
 
@@ -321,7 +304,6 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 	info->timer->delayed_timer_trigger.tv_sec = 0;
 	info->timer->delayed_timer_trigger.tv_nsec = 0;
 	info->timer->work_pending = false;
-	info->timer->uid = 0;
 	get_monotonic_boottime(&info->timer->last_modified_timer);
 
 	info->timer->pm_nb.notifier_call = idletimer_resume;
@@ -345,8 +327,7 @@ out:
 	return ret;
 }
 
-static void reset_timer(const struct idletimer_tg_info *info,
-			struct sk_buff *skb)
+static void reset_timer(const struct idletimer_tg_info *info)
 {
 	unsigned long now = jiffies;
 	struct idletimer_tg *timer = info->timer;
@@ -359,13 +340,6 @@ static void reset_timer(const struct idletimer_tg_info *info,
 	if (!timer_prev || time_before(timer->timer.expires, now)) {
 		pr_debug("Starting Checkentry timer (Expired, Jiffies): %lu, %lu\n",
 				timer->timer.expires, now);
-
-		/* Stores the uid resposible for waking up the radio */
-		if (skb && (skb->sk)) {
-			timer->uid = from_kuid_munged(current_user_ns(),
-						sock_i_uid(skb->sk));
-		}
-
 		/* checks if there is a pending inactive notification*/
 		if (timer->work_pending)
 			timer->delayed_timer_trigger = timer->last_modified_timer;
@@ -404,7 +378,7 @@ static unsigned int idletimer_tg_target(struct sk_buff *skb,
 	}
 
 	/* TODO: Avoid modifying timers on each packet */
-	reset_timer(info, skb);
+	reset_timer(info);
 	return XT_CONTINUE;
 }
 
@@ -432,7 +406,7 @@ static int idletimer_tg_checkentry(const struct xt_tgchk_param *par)
 	info->timer = __idletimer_tg_find_by_label(info->label);
 	if (info->timer) {
 		info->timer->refcnt++;
-		reset_timer(info, NULL);
+		reset_timer(info);
 		pr_debug("increased refcnt of timer %s to %u\n",
 			 info->label, info->timer->refcnt);
 	} else {
@@ -462,9 +436,9 @@ static void idletimer_tg_destroy(const struct xt_tgdtor_param *par)
 
 		list_del(&info->timer->entry);
 		del_timer_sync(&info->timer->timer);
+		cancel_work_sync(&info->timer->work);
 		sysfs_remove_file(idletimer_tg_kobj, &info->timer->attr.attr);
 		unregister_pm_notifier(&info->timer->pm_nb);
-		cancel_work_sync(&info->timer->work);
 		kfree(info->timer->attr.attr.name);
 		kfree(info->timer);
 	} else {

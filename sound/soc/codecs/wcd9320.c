@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, 2016 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -457,10 +457,6 @@ struct taiko_priv {
 	 */
 	struct list_head reg_save_restore;
 	struct pm_qos_request pm_qos_req;
-
-	/* Port values for Rx and Tx codec_dai */
-	unsigned int rx_port_value;
-	unsigned int tx_port_value;
 };
 
 static const u32 comp_shift[] = {
@@ -589,7 +585,7 @@ static int spkr_drv_wrnd_param_set(const char *val,
 static int taiko_get_anc_slot(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 	ucontrol->value.integer.value[0] = taiko->anc_slot;
 	return 0;
@@ -598,7 +594,7 @@ static int taiko_get_anc_slot(struct snd_kcontrol *kcontrol,
 static int taiko_put_anc_slot(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 	taiko->anc_slot = ucontrol->value.integer.value[0];
 	return 0;
@@ -607,7 +603,7 @@ static int taiko_put_anc_slot(struct snd_kcontrol *kcontrol,
 static int taiko_get_anc_func(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = (taiko->anc_func == true ? 1 : 0);
@@ -617,11 +613,11 @@ static int taiko_get_anc_func(struct snd_kcontrol *kcontrol,
 static int taiko_put_anc_func(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	mutex_lock(&codec->mutex);
+	mutex_lock(&dapm->codec->mutex);
 	taiko->anc_func = (!ucontrol->value.integer.value[0] ? false : true);
 
 	dev_dbg(codec->dev, "%s: anc_func %x", __func__, taiko->anc_func);
@@ -649,7 +645,7 @@ static int taiko_put_anc_func(struct snd_kcontrol *kcontrol,
 		snd_soc_dapm_enable_pin(dapm, "EAR PA");
 		snd_soc_dapm_enable_pin(dapm, "EAR");
 	}
-	mutex_unlock(&codec->mutex);
+	mutex_unlock(&dapm->codec->mutex);
 	snd_soc_dapm_sync(dapm);
 	return 0;
 }
@@ -658,7 +654,7 @@ static int taiko_get_iir_enable_audio_mixer(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int iir_idx = ((struct soc_multi_mixer_control *)
 					kcontrol->private_value)->reg;
 	int band_idx = ((struct soc_multi_mixer_control *)
@@ -678,7 +674,7 @@ static int taiko_put_iir_enable_audio_mixer(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int iir_idx = ((struct soc_multi_mixer_control *)
 					kcontrol->private_value)->reg;
 	int band_idx = ((struct soc_multi_mixer_control *)
@@ -742,7 +738,7 @@ static int taiko_get_iir_band_audio_mixer(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int iir_idx = ((struct soc_multi_mixer_control *)
 					kcontrol->private_value)->reg;
 	int band_idx = ((struct soc_multi_mixer_control *)
@@ -803,7 +799,7 @@ static int taiko_put_iir_band_audio_mixer(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int iir_idx = ((struct soc_multi_mixer_control *)
 					kcontrol->private_value)->reg;
 	int band_idx = ((struct soc_multi_mixer_control *)
@@ -848,7 +844,7 @@ static int taiko_get_compander(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
 
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int comp = ((struct soc_multi_mixer_control *)
 		    kcontrol->private_value)->shift;
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
@@ -860,7 +856,7 @@ static int taiko_get_compander(struct snd_kcontrol *kcontrol,
 static int taiko_set_compander(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 	int comp = ((struct soc_multi_mixer_control *)
 		    kcontrol->private_value)->shift;
@@ -1175,7 +1171,7 @@ static int taiko_mad_input_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
 	u8 taiko_mad_input;
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
 	taiko_mad_input = snd_soc_read(codec, TAIKO_A_CDC_CONN_MAD);
 
@@ -1194,8 +1190,8 @@ static int taiko_mad_input_put(struct snd_kcontrol *kcontrol,
 {
 	u8 taiko_mad_input;
 	u16 micb_int_reg, micb_4_int_reg;
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
-	struct snd_soc_card *card = codec->component.card;
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_card *card = codec->card;
 	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 	char mad_amic_input_widget[6];
 	u32 adc;
@@ -1556,7 +1552,7 @@ static int taiko_pa_gain_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	u8 ear_pa_gain;
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
 	ear_pa_gain = snd_soc_read(codec, TAIKO_A_RX_EAR_GAIN);
 
@@ -1573,7 +1569,7 @@ static int taiko_pa_gain_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	u8 ear_pa_gain;
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
 	pr_debug("%s: ucontrol->value.integer.value[0]  = %ld\n", __func__,
 			ucontrol->value.integer.value[0]);
@@ -1674,7 +1670,7 @@ static int taiko_hph_impedance_get(struct snd_kcontrol *kcontrol,
 	uint32_t zl, zr;
 	bool hphr;
 	struct soc_multi_mixer_control *mc;
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct taiko_priv *priv = snd_soc_codec_get_drvdata(codec);
 
 	mc = (struct soc_multi_mixer_control *)(kcontrol->private_value);
@@ -2086,8 +2082,7 @@ static const struct snd_kcontrol_new sb_tx10_mux =
 static int wcd9320_put_dec_enum(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget_list *wlist =
-					dapm_kcontrol_get_wlist(kcontrol);
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
 	struct snd_soc_dapm_widget *w = wlist->widgets[0];
 	struct snd_soc_codec *codec = w->codec;
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
@@ -2100,7 +2095,7 @@ static int wcd9320_put_dec_enum(struct snd_kcontrol *kcontrol,
 	int ret = 0;
 	char *dec;
 
-	if (ucontrol->value.enumerated.item[0] >= e->items)
+	if (ucontrol->value.enumerated.item[0] > e->max - 1)
 		return -EINVAL;
 
 	dec_mux = ucontrol->value.enumerated.item[0];
@@ -2299,26 +2294,21 @@ static const struct snd_kcontrol_new aif4_vi_switch =
 static int slim_tx_mixer_get(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget_list *wlist =
-					dapm_kcontrol_get_wlist(kcontrol);
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
 	struct snd_soc_dapm_widget *widget = wlist->widgets[0];
-	struct snd_soc_codec *codec = widget->codec;
-	struct taiko_priv *taiko_p = snd_soc_codec_get_drvdata(codec);
 
-	ucontrol->value.integer.value[0] = taiko_p->tx_port_value;
+	ucontrol->value.integer.value[0] = widget->value;
 	return 0;
 }
 
 static int slim_tx_mixer_put(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget_list *wlist =
-					dapm_kcontrol_get_wlist(kcontrol);
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
 	struct snd_soc_dapm_widget *widget = wlist->widgets[0];
 	struct snd_soc_codec *codec = widget->codec;
 	struct taiko_priv *taiko_p = snd_soc_codec_get_drvdata(codec);
 	struct wcd9xxx *core = dev_get_drvdata(codec->dev->parent);
-	struct snd_soc_dapm_update *update = NULL;
 	struct soc_multi_mixer_control *mixer =
 		((struct soc_multi_mixer_control *)kcontrol->private_value);
 	u32 dai_id = widget->shift;
@@ -2328,8 +2318,8 @@ static int slim_tx_mixer_put(struct snd_kcontrol *kcontrol,
 
 
 	pr_debug("%s: wname %s cname %s value %u shift %d item %ld\n", __func__,
-		widget->name, ucontrol->id.name, taiko_p->tx_port_value,
-		widget->shift, ucontrol->value.integer.value[0]);
+		widget->name, ucontrol->id.name, widget->value, widget->shift,
+		ucontrol->value.integer.value[0]);
 
 	mutex_lock(&codec->mutex);
 
@@ -2347,8 +2337,7 @@ static int slim_tx_mixer_put(struct snd_kcontrol *kcontrol,
 		case AIF3_CAP:
 			/* only add to the list if value not set
 			 */
-			if (enable && !(taiko_p->tx_port_value &
-					1 << port_id)) {
+			if (enable && !(widget->value & 1 << port_id)) {
 
 				if (taiko_p->intf_type ==
 					WCD9XXX_INTERFACE_TYPE_SLIMBUS)
@@ -2366,13 +2355,12 @@ static int slim_tx_mixer_put(struct snd_kcontrol *kcontrol,
 					mutex_unlock(&codec->mutex);
 					return 0;
 				}
-				taiko_p->tx_port_value |= 1 << port_id;
+				widget->value |= 1 << port_id;
 				list_add_tail(&core->tx_chs[port_id].list,
 				      &taiko_p->dai[dai_id].wcd9xxx_ch_list
 					      );
-			} else if (!enable && (taiko_p->tx_port_value &
-						1 << port_id)) {
-				taiko_p->tx_port_value &= ~(1 << port_id);
+			} else if (!enable && (widget->value & 1 << port_id)) {
+				widget->value &= ~(1 << port_id);
 				list_del_init(&core->tx_chs[port_id].list);
 			} else {
 				if (enable)
@@ -2394,11 +2382,10 @@ static int slim_tx_mixer_put(struct snd_kcontrol *kcontrol,
 			return -EINVAL;
 		}
 	pr_debug("%s: name %s sname %s updated value %u shift %d\n", __func__,
-		widget->name, widget->sname, taiko_p->tx_port_value,
-		widget->shift);
+		widget->name, widget->sname, widget->value, widget->shift);
 
 	mutex_unlock(&codec->mutex);
-	snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol, enable, update);
+	snd_soc_dapm_mixer_update_power(widget, kcontrol, enable);
 
 	return 0;
 }
@@ -2406,13 +2393,10 @@ static int slim_tx_mixer_put(struct snd_kcontrol *kcontrol,
 static int slim_rx_mux_get(struct snd_kcontrol *kcontrol,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget_list *wlist =
-					dapm_kcontrol_get_wlist(kcontrol);
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
 	struct snd_soc_dapm_widget *widget = wlist->widgets[0];
-	struct snd_soc_codec *codec = widget->codec;
-	struct taiko_priv *taiko_p = snd_soc_codec_get_drvdata(codec);
 
-	ucontrol->value.enumerated.item[0] = taiko_p->rx_port_value;
+	ucontrol->value.enumerated.item[0] = widget->value;
 	return 0;
 }
 
@@ -2423,25 +2407,24 @@ static const char *const slim_rx_mux_text[] = {
 static int slim_rx_mux_put(struct snd_kcontrol *kcontrol,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget_list *wlist =
-					dapm_kcontrol_get_wlist(kcontrol);
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
 	struct snd_soc_dapm_widget *widget = wlist->widgets[0];
 	struct snd_soc_codec *codec = widget->codec;
 	struct taiko_priv *taiko_p = snd_soc_codec_get_drvdata(codec);
 	struct wcd9xxx *core = dev_get_drvdata(codec->dev->parent);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
-	struct snd_soc_dapm_update *update = NULL;
 	u32 port_id = widget->shift;
 
 	pr_debug("%s: wname %s cname %s value %u shift %d item %ld\n", __func__,
-		widget->name, ucontrol->id.name, taiko_p->rx_port_value,
-		widget->shift, ucontrol->value.integer.value[0]);
+		widget->name, ucontrol->id.name, widget->value, widget->shift,
+		ucontrol->value.integer.value[0]);
 
-	taiko_p->rx_port_value = ucontrol->value.enumerated.item[0];
+	widget->value = ucontrol->value.enumerated.item[0];
+
 	mutex_lock(&codec->mutex);
 
 	if (taiko_p->intf_type != WCD9XXX_INTERFACE_TYPE_SLIMBUS) {
-		if (taiko_p->rx_port_value > 2) {
+		if (widget->value > 2) {
 			dev_err(codec->dev, "%s: invalid AIF for I2C mode\n",
 				__func__);
 			goto err;
@@ -2449,7 +2432,7 @@ static int slim_rx_mux_put(struct snd_kcontrol *kcontrol,
 	}
 	/* value need to match the Virtual port and AIF number
 	 */
-	switch (taiko_p->rx_port_value) {
+	switch (widget->value) {
 	case 0:
 		list_del_init(&core->rx_chs[port_id].list);
 	break;
@@ -2487,13 +2470,12 @@ static int slim_rx_mux_put(struct snd_kcontrol *kcontrol,
 			      &taiko_p->dai[AIF3_PB].wcd9xxx_ch_list);
 	break;
 	default:
-		pr_err("Unknown AIF %d\n", taiko_p->rx_port_value);
+		pr_err("Unknown AIF %d\n", widget->value);
 		goto err;
 	}
 rtn:
 	mutex_unlock(&codec->mutex);
-	snd_soc_dapm_mux_update_power(widget->dapm, kcontrol,
-					taiko_p->rx_port_value, e, update);
+	snd_soc_dapm_mux_update_power(widget, kcontrol, widget->value, e);
 
 	return 0;
 err:
@@ -5425,8 +5407,7 @@ static int taiko_codec_enable_slimrx(struct snd_soc_dapm_widget *w,
 
 	pr_debug("%s: event called! codec name %s num_dai %d\n"
 		"stream name %s event %d\n",
-		__func__, w->codec->component.name,
-		w->codec->component.num_dai, w->sname, event);
+		__func__, w->codec->name, w->codec->num_dai, w->sname, event);
 
 	/* Execute the callback only if interface type is slimbus */
 	if (taiko_p->intf_type != WCD9XXX_INTERFACE_TYPE_SLIMBUS)
@@ -5483,8 +5464,7 @@ static int taiko_codec_enable_slimvi_feedback(struct snd_soc_dapm_widget *w,
 	core = dev_get_drvdata(codec->dev->parent);
 
 	pr_debug("%s: event called! codec name %s num_dai %d stream name %s\n",
-		__func__, w->codec->component.name,
-		w->codec->component.num_dai, w->sname);
+		__func__, w->codec->name, w->codec->num_dai, w->sname);
 
 	/* Execute the callback only if interface type is slimbus */
 	if (taiko_p->intf_type != WCD9XXX_INTERFACE_TYPE_SLIMBUS) {
@@ -5556,8 +5536,7 @@ static int taiko_codec_enable_slimtx(struct snd_soc_dapm_widget *w,
 	core = dev_get_drvdata(codec->dev->parent);
 
 	pr_debug("%s: event called! codec name %s num_dai %d stream name %s\n",
-		__func__, w->codec->component.name,
-		w->codec->component.num_dai, w->sname);
+		__func__, w->codec->name, w->codec->num_dai, w->sname);
 
 	/* Execute the callback only if interface type is slimbus */
 	if (taiko_p->intf_type != WCD9XXX_INTERFACE_TYPE_SLIMBUS)
@@ -5718,24 +5697,6 @@ static int taiko_codec_enable_anc_ear(struct snd_soc_dapm_widget *w,
 		break;
 	}
 	return ret;
-}
-
-static int taiko_codec_set_iir_gain(struct snd_soc_dapm_widget *w,
-	struct snd_kcontrol *kcontrol, int event)
-{
-	struct snd_soc_codec *codec = w->codec;
-	int value = 0;
-
-	switch (event) {
-	case SND_SOC_DAPM_POST_PMU:
-		value = snd_soc_read(codec, TAIKO_A_CDC_IIR1_GAIN_B1_CTL);
-		snd_soc_write(codec, TAIKO_A_CDC_IIR1_GAIN_B1_CTL, value);
-		break;
-	default:
-		pr_info("%s: event = %d not expected\n", __func__, event);
-		break;
-	}
-	return 0;
 }
 
 /* Todo: Have seperate dapm widgets for I2S and Slimbus.
@@ -6185,9 +6146,6 @@ static const struct snd_soc_dapm_widget taiko_dapm_widgets[] = {
 		&iir1_inp1_mux,  taiko_codec_iir_mux_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
-	SND_SOC_DAPM_PGA_E("IIR1", TAIKO_A_CDC_CLK_SD_CTL, 0, 0, NULL, 0,
-		taiko_codec_set_iir_gain, SND_SOC_DAPM_POST_PMU),
-
 	SND_SOC_DAPM_MUX_E("IIR1 INP2 MUX", TAIKO_A_CDC_IIR1_GAIN_B2_CTL, 0, 0,
 		&iir1_inp2_mux,  taiko_codec_iir_mux_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
@@ -6200,6 +6158,7 @@ static const struct snd_soc_dapm_widget taiko_dapm_widgets[] = {
 		&iir1_inp4_mux,  taiko_codec_iir_mux_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
+	SND_SOC_DAPM_MIXER("IIR1", TAIKO_A_CDC_CLK_SD_CTL, 0, 0, NULL, 0),
 
 	SND_SOC_DAPM_MUX_E("IIR2 INP1 MUX", TAIKO_A_CDC_IIR2_GAIN_B1_CTL, 0, 0,
 		&iir2_inp1_mux,  taiko_codec_iir_mux_event,
@@ -6953,7 +6912,7 @@ static int taiko_device_down(struct wcd9xxx *wcd9xxx)
 	struct snd_soc_codec *codec;
 
 	codec = (struct snd_soc_codec *)(wcd9xxx->ssr_priv);
-	snd_soc_card_change_online_state(codec->component.card, 0);
+	snd_soc_card_change_online_state(codec->card, 0);
 
 	return 0;
 }
@@ -7191,7 +7150,7 @@ static int taiko_post_reset_cb(struct wcd9xxx *wcd9xxx)
 	codec = (struct snd_soc_codec *)(wcd9xxx->ssr_priv);
 	taiko = snd_soc_codec_get_drvdata(codec);
 
-	snd_soc_card_change_online_state(codec->component.card, 1);
+	snd_soc_card_change_online_state(codec->card, 1);
 
 	mutex_lock(&codec->mutex);
 
@@ -7408,7 +7367,7 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 	pdata = dev_get_platdata(codec->dev->parent);
 	ret = wcd9xxx_resmgr_init(&taiko->resmgr, codec, core_res, pdata,
 				  &pdata->micbias, &taiko_reg_address,
-				  NULL, WCD9XXX_CDC_TYPE_TAIKO);
+				  WCD9XXX_CDC_TYPE_TAIKO);
 	if (ret) {
 		pr_err("%s: wcd9xxx init failed %d\n", __func__, ret);
 		goto err_init;
@@ -7537,16 +7496,16 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 	}
 
 	atomic_set(&kp_taiko_priv, (unsigned long)taiko);
-	mutex_lock(&codec->mutex);
+	mutex_lock(&dapm->codec->mutex);
 	snd_soc_dapm_disable_pin(dapm, "ANC HPHL");
 	snd_soc_dapm_disable_pin(dapm, "ANC HPHR");
 	snd_soc_dapm_disable_pin(dapm, "ANC HEADPHONE");
 	snd_soc_dapm_disable_pin(dapm, "ANC EAR PA");
 	snd_soc_dapm_disable_pin(dapm, "ANC EAR");
-	mutex_unlock(&codec->mutex);
+	mutex_unlock(&dapm->codec->mutex);
 	snd_soc_dapm_sync(dapm);
 
-	codec->component.ignore_pmdown_time = 1;
+	codec->ignore_pmdown_time = 1;
 	return ret;
 
 err_irq:

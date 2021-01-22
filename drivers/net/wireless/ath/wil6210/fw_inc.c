@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2016 Qualcomm Atheros, Inc.
+ * Copyright (c) 2014 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,17 +26,14 @@
 					     prefix_type, rowsize,	\
 					     groupsize, buf, len, ascii)
 
-static bool wil_fw_addr_check(struct wil6210_priv *wil,
-			      void __iomem **ioaddr, __le32 val,
-			      u32 size, const char *msg)
-{
-	*ioaddr = wmi_buffer_block(wil, val, size);
-	if (!(*ioaddr)) {
-		wil_err_fw(wil, "bad %s: 0x%08x\n", msg, le32_to_cpu(val));
-		return false;
-	}
-	return true;
-}
+#define FW_ADDR_CHECK(ioaddr, val, msg) do { \
+		ioaddr = wmi_buffer(wil, val); \
+		if (!ioaddr) { \
+			wil_err_fw(wil, "bad " msg ": 0x%08x\n", \
+				   le32_to_cpu(val)); \
+			return -EINVAL; \
+		} \
+	} while (0)
 
 /**
  * wil_fw_verify - verify firmware file validity
@@ -121,38 +118,11 @@ static int wil_fw_verify(struct wil6210_priv *wil, const u8 *data, size_t size)
 	return (int)dlen;
 }
 
-static int fw_ignore_section(struct wil6210_priv *wil, const void *data,
-			     size_t size)
-{
-	return 0;
-}
-
 static int fw_handle_comment(struct wil6210_priv *wil, const void *data,
 			     size_t size)
 {
 	wil_hex_dump_fw("", DUMP_PREFIX_OFFSET, 16, 1, data, size, true);
 
-	return 0;
-}
-
-static int
-fw_handle_capabilities(struct wil6210_priv *wil, const void *data,
-		       size_t size)
-{
-	const struct wil_fw_record_capabilities *rec = data;
-	size_t capa_size;
-
-	if (size < sizeof(*rec) ||
-	    le32_to_cpu(rec->magic) != WIL_FW_CAPABILITIES_MAGIC)
-		return 0;
-
-	capa_size = size - offsetof(struct wil_fw_record_capabilities,
-				    capabilities);
-	bitmap_zero(wil->fw_capabilities, WMI_FW_CAPABILITY_MAX);
-	memcpy(wil->fw_capabilities, rec->capabilities,
-	       min(sizeof(wil->fw_capabilities), capa_size));
-	wil_hex_dump_fw("CAPA", DUMP_PREFIX_OFFSET, 16, 1,
-			rec->capabilities, capa_size, false);
 	return 0;
 }
 
@@ -168,8 +138,7 @@ static int fw_handle_data(struct wil6210_priv *wil, const void *data,
 		return -EINVAL;
 	}
 
-	if (!wil_fw_addr_check(wil, &dst, d->addr, s, "address"))
-		return -EINVAL;
+	FW_ADDR_CHECK(dst, d->addr, "address");
 	wil_dbg_fw(wil, "write [0x%08x] <== %zu bytes\n", le32_to_cpu(d->addr),
 		   s);
 	wil_memcpy_toio_32(dst, d->data, s);
@@ -201,8 +170,7 @@ static int fw_handle_fill(struct wil6210_priv *wil, const void *data,
 		return -EINVAL;
 	}
 
-	if (!wil_fw_addr_check(wil, &dst, d->addr, s, "address"))
-		return -EINVAL;
+	FW_ADDR_CHECK(dst, d->addr, "address");
 
 	v = le32_to_cpu(d->value);
 	wil_dbg_fw(wil, "fill [0x%08x] <== 0x%08x, %zu bytes\n",
@@ -228,13 +196,6 @@ static int fw_handle_file_header(struct wil6210_priv *wil, const void *data,
 	wil_hex_dump_fw("", DUMP_PREFIX_OFFSET, 16, 1, d->comment,
 			sizeof(d->comment), true);
 
-	if (!memcmp(d->comment, WIL_FW_VERSION_PREFIX,
-		    WIL_FW_VERSION_PREFIX_LEN))
-		memcpy(wil->fw_version,
-		       d->comment + WIL_FW_VERSION_PREFIX_LEN,
-		       min(sizeof(d->comment) - WIL_FW_VERSION_PREFIX_LEN,
-			   sizeof(wil->fw_version) - 1));
-
 	return 0;
 }
 
@@ -258,15 +219,14 @@ static int fw_handle_direct_write(struct wil6210_priv *wil, const void *data,
 		u32 v = le32_to_cpu(block[i].value);
 		u32 x, y;
 
-		if (!wil_fw_addr_check(wil, &dst, block[i].addr, 0, "address"))
-			return -EINVAL;
+		FW_ADDR_CHECK(dst, block[i].addr, "address");
 
-		x = readl(dst);
+		x = ioread32(dst);
 		y = (x & m) | (v & ~m);
 		wil_dbg_fw(wil, "write [0x%08x] <== 0x%08x "
 			   "(old 0x%08x val 0x%08x mask 0x%08x)\n",
 			   le32_to_cpu(block[i].addr), y, x, v, m);
-		writel(y, dst);
+		iowrite32(y, dst);
 		wmb(); /* finish before processing next record */
 	}
 
@@ -279,18 +239,18 @@ static int gw_write(struct wil6210_priv *wil, void __iomem *gwa_addr,
 {
 	unsigned delay = 0;
 
-	writel(a, gwa_addr);
-	writel(gw_cmd, gwa_cmd);
+	iowrite32(a, gwa_addr);
+	iowrite32(gw_cmd, gwa_cmd);
 	wmb(); /* finish before activate gw */
 
-	writel(WIL_FW_GW_CTL_RUN, gwa_ctl); /* activate gw */
+	iowrite32(WIL_FW_GW_CTL_RUN, gwa_ctl); /* activate gw */
 	do {
 		udelay(1); /* typical time is few usec */
 		if (delay++ > 100) {
 			wil_err_fw(wil, "gw timeout\n");
 			return -EINVAL;
 		}
-	} while (readl(gwa_ctl) & WIL_FW_GW_CTL_BUSY); /* gw done? */
+	} while (ioread32(gwa_ctl) & WIL_FW_GW_CTL_BUSY); /* gw done? */
 
 	return 0;
 }
@@ -325,15 +285,10 @@ static int fw_handle_gateway_data(struct wil6210_priv *wil, const void *data,
 	wil_dbg_fw(wil, "gw write record [%3d] blocks, cmd 0x%08x\n",
 		   n, gw_cmd);
 
-	if (!wil_fw_addr_check(wil, &gwa_addr, d->gateway_addr_addr, 0,
-			       "gateway_addr_addr") ||
-	    !wil_fw_addr_check(wil, &gwa_val, d->gateway_value_addr, 0,
-			       "gateway_value_addr") ||
-	    !wil_fw_addr_check(wil, &gwa_cmd, d->gateway_cmd_addr, 0,
-			       "gateway_cmd_addr") ||
-	    !wil_fw_addr_check(wil, &gwa_ctl, d->gateway_ctrl_address, 0,
-			       "gateway_ctrl_address"))
-		return -EINVAL;
+	FW_ADDR_CHECK(gwa_addr, d->gateway_addr_addr, "gateway_addr_addr");
+	FW_ADDR_CHECK(gwa_val, d->gateway_value_addr, "gateway_value_addr");
+	FW_ADDR_CHECK(gwa_cmd, d->gateway_cmd_addr, "gateway_cmd_addr");
+	FW_ADDR_CHECK(gwa_ctl, d->gateway_ctrl_address, "gateway_ctrl_address");
 
 	wil_dbg_fw(wil, "gw addresses: addr 0x%08x val 0x%08x"
 		   " cmd 0x%08x ctl 0x%08x\n",
@@ -350,7 +305,7 @@ static int fw_handle_gateway_data(struct wil6210_priv *wil, const void *data,
 		wil_dbg_fw(wil, "  gw write[%3d] [0x%08x] <== 0x%08x\n",
 			   i, a, v);
 
-		writel(v, gwa_val);
+		iowrite32(v, gwa_val);
 		rc = gw_write(wil, gwa_addr, gwa_cmd, gwa_ctl, gw_cmd, a);
 		if (rc)
 			return rc;
@@ -389,19 +344,12 @@ static int fw_handle_gateway_data4(struct wil6210_priv *wil, const void *data,
 	wil_dbg_fw(wil, "gw4 write record [%3d] blocks, cmd 0x%08x\n",
 		   n, gw_cmd);
 
-	if (!wil_fw_addr_check(wil, &gwa_addr, d->gateway_addr_addr, 0,
-			       "gateway_addr_addr"))
-		return -EINVAL;
+	FW_ADDR_CHECK(gwa_addr, d->gateway_addr_addr, "gateway_addr_addr");
 	for (k = 0; k < ARRAY_SIZE(block->value); k++)
-		if (!wil_fw_addr_check(wil, &gwa_val[k],
-				       d->gateway_value_addr[k],
-				       0, "gateway_value_addr"))
-			return -EINVAL;
-	if (!wil_fw_addr_check(wil, &gwa_cmd, d->gateway_cmd_addr, 0,
-			       "gateway_cmd_addr") ||
-	    !wil_fw_addr_check(wil, &gwa_ctl, d->gateway_ctrl_address, 0,
-			       "gateway_ctrl_address"))
-		return -EINVAL;
+		FW_ADDR_CHECK(gwa_val[k], d->gateway_value_addr[k],
+			      "gateway_value_addr");
+	FW_ADDR_CHECK(gwa_cmd, d->gateway_cmd_addr, "gateway_cmd_addr");
+	FW_ADDR_CHECK(gwa_ctl, d->gateway_ctrl_address, "gateway_ctrl_address");
 
 	wil_dbg_fw(wil, "gw4 addresses: addr 0x%08x cmd 0x%08x ctl 0x%08x\n",
 		   le32_to_cpu(d->gateway_addr_addr),
@@ -424,7 +372,7 @@ static int fw_handle_gateway_data4(struct wil6210_priv *wil, const void *data,
 				sizeof(v), false);
 
 		for (k = 0; k < ARRAY_SIZE(block->value); k++)
-			writel(v[k], gwa_val[k]);
+			iowrite32(v[k], gwa_val[k]);
 		rc = gw_write(wil, gwa_addr, gwa_cmd, gwa_ctl, gw_cmd, a);
 		if (rc)
 			return rc;
@@ -435,51 +383,42 @@ static int fw_handle_gateway_data4(struct wil6210_priv *wil, const void *data,
 
 static const struct {
 	int type;
-	int (*load_handler)(struct wil6210_priv *wil, const void *data,
-			    size_t size);
-	int (*parse_handler)(struct wil6210_priv *wil, const void *data,
-			     size_t size);
+	int (*handler)(struct wil6210_priv *wil, const void *data, size_t size);
 } wil_fw_handlers[] = {
-	{wil_fw_type_comment, fw_handle_comment, fw_handle_capabilities},
-	{wil_fw_type_data, fw_handle_data, fw_ignore_section},
-	{wil_fw_type_fill, fw_handle_fill, fw_ignore_section},
+	{wil_fw_type_comment, fw_handle_comment},
+	{wil_fw_type_data, fw_handle_data},
+	{wil_fw_type_fill, fw_handle_fill},
 	/* wil_fw_type_action */
 	/* wil_fw_type_verify */
-	{wil_fw_type_file_header, fw_handle_file_header,
-		fw_handle_file_header},
-	{wil_fw_type_direct_write, fw_handle_direct_write, fw_ignore_section},
-	{wil_fw_type_gateway_data, fw_handle_gateway_data, fw_ignore_section},
-	{wil_fw_type_gateway_data4, fw_handle_gateway_data4,
-		fw_ignore_section},
+	{wil_fw_type_file_header, fw_handle_file_header},
+	{wil_fw_type_direct_write, fw_handle_direct_write},
+	{wil_fw_type_gateway_data, fw_handle_gateway_data},
+	{wil_fw_type_gateway_data4, fw_handle_gateway_data4},
 };
 
 static int wil_fw_handle_record(struct wil6210_priv *wil, int type,
-				const void *data, size_t size, bool load)
+				const void *data, size_t size)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(wil_fw_handlers); i++)
+	for (i = 0; i < ARRAY_SIZE(wil_fw_handlers); i++) {
 		if (wil_fw_handlers[i].type == type)
-			return load ?
-				wil_fw_handlers[i].load_handler(
-					wil, data, size) :
-				wil_fw_handlers[i].parse_handler(
-					wil, data, size);
+			return wil_fw_handlers[i].handler(wil, data, size);
+	}
 
 	wil_err_fw(wil, "unknown record type: %d\n", type);
 	return -EINVAL;
 }
 
 /**
- * wil_fw_process - process section from FW file
- * if load is true: Load the FW and uCode code and data to the
- * corresponding device memory regions,
- * otherwise only parse and look for capabilities
+ * wil_fw_load - load FW into device
+ *
+ * Load the FW and uCode code and data to the corresponding device
+ * memory regions
  *
  * Return error code
  */
-static int wil_fw_process(struct wil6210_priv *wil, const void *data,
-			  size_t size, bool load)
+static int wil_fw_load(struct wil6210_priv *wil, const void *data, size_t size)
 {
 	int rc = 0;
 	const struct wil_fw_record_head *hdr;
@@ -498,7 +437,7 @@ static int wil_fw_process(struct wil6210_priv *wil, const void *data,
 			return -EINVAL;
 		}
 		rc = wil_fw_handle_record(wil, le16_to_cpu(hdr->type),
-					  &hdr[1], hdr_sz, load);
+					  &hdr[1], hdr_sz);
 		if (rc)
 			return rc;
 	}
@@ -507,33 +446,32 @@ static int wil_fw_process(struct wil6210_priv *wil, const void *data,
 		if (size >= sizeof(*hdr)) {
 			wil_err_fw(wil, "Stop at offset %ld"
 				   " record type %d [%zd bytes]\n",
-				   (long)((const void *)hdr - data),
+				   (const void *)hdr - data,
 				   le16_to_cpu(hdr->type), hdr_sz);
 		}
 		return -EINVAL;
 	}
+	/* Mark FW as loaded from host */
+	S(RGF_USER_USAGE_6, 1);
 
 	return rc;
 }
 
 /**
- * wil_request_firmware - Request firmware
+ * wil_request_firmware - Request firmware and load to device
  *
- * Request firmware image from the file
- * If load is true, load firmware to device, otherwise
- * only parse and extract capabilities
+ * Request firmware image from the file and load it to device
  *
  * Return error code
  */
-int wil_request_firmware(struct wil6210_priv *wil, const char *name,
-			 bool load)
+int wil_request_firmware(struct wil6210_priv *wil, const char *name)
 {
 	int rc, rc1;
 	const struct firmware *fw;
 	size_t sz;
 	const void *d;
 
-	rc = request_firmware(&fw, name, wil_to_dev(wil));
+	rc = request_firmware(&fw, name, wil_to_pcie_dev(wil));
 	if (rc) {
 		wil_err_fw(wil, "Failed to load firmware %s\n", name);
 		return rc;
@@ -546,7 +484,7 @@ int wil_request_firmware(struct wil6210_priv *wil, const char *name,
 			rc = rc1;
 			goto out;
 		}
-		rc = wil_fw_process(wil, d, rc1, load);
+		rc = wil_fw_load(wil, d, rc1);
 		if (rc < 0)
 			goto out;
 	}

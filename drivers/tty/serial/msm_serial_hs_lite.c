@@ -2,7 +2,7 @@
  * drivers/serial/msm_serial.c - driver for msm7k serial device and console
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -46,6 +46,7 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
+#include <linux/wakelock.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>
 #include <linux/platform_data/qcom-serial_hs_lite.h>
@@ -88,7 +89,7 @@ struct msm_hsl_port {
 	struct mutex		clk_mutex;
 	enum uart_core_type	uart_type;
 	enum uart_func_mode	func_mode;
-	struct wakeup_source	port_open_ws;
+	struct wake_lock	port_open_wake_lock;
 	int			clk_enable_count;
 	u32			bus_perf_client;
 	/* BLSP UART required BUS Scaling data */
@@ -554,7 +555,6 @@ static void handle_rx(struct uart_port *port, unsigned int misr)
 	unsigned int vid;
 	unsigned int sr;
 	int count = 0;
-	int copied = 0;
 	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
 
 	vid = msm_hsl_port->ver_id;
@@ -610,9 +610,9 @@ static void handle_rx(struct uart_port *port, unsigned int misr)
 
 		/* TODO: handle sysrq */
 		/* if (!uart_handle_sysrq_char(port, c)) */
-		copied = tty_insert_flip_string(tty->port, (char *) &c,
+		tty_insert_flip_string(tty->port, (char *) &c,
 				       (count > 4) ? 4 : count);
-		count -= copied;
+		count -= 4;
 	}
 
 	tty_flip_buffer_push(tty->port);
@@ -995,7 +995,7 @@ static int msm_hsl_startup(struct uart_port *port)
 			set_gsbi_uart_func_mode(port);
 
 		if (pdata && pdata->use_pm)
-			__pm_stay_awake(&msm_hsl_port->port_open_ws);
+			wake_lock(&msm_hsl_port->port_open_wake_lock);
 
 		if (pdata && pdata->config_gpio) {
 			ret = msm_hsl_config_uart_gpios(port);
@@ -1039,7 +1039,7 @@ static int msm_hsl_startup(struct uart_port *port)
 
 release_wakelock:
 	if (pdata && pdata->use_pm)
-		__pm_relax(&msm_hsl_port->port_open_ws);
+		wake_unlock(&msm_hsl_port->port_open_wake_lock);
 
 	return ret;
 }
@@ -1064,7 +1064,7 @@ static void msm_hsl_shutdown(struct uart_port *port)
 			msm_hsl_unconfig_uart_gpios(port);
 
 		if (pdata && pdata->use_pm)
-			__pm_stay_awake(&msm_hsl_port->port_open_ws);
+			wake_unlock(&msm_hsl_port->port_open_wake_lock);
 	}
 }
 
@@ -1830,8 +1830,9 @@ static int msm_serial_hsl_probe(struct platform_device *pdev)
 	msm_hsl_debugfs_init(msm_hsl_port, get_line(pdev));
 	mutex_init(&msm_hsl_port->clk_mutex);
 	if (pdata && pdata->use_pm)
-		wakeup_source_init(&msm_hsl_port->port_open_ws,
-				   "msm_serial_hslite_port_open");
+		wake_lock_init(&msm_hsl_port->port_open_wake_lock,
+				WAKE_LOCK_SUSPEND,
+				"msm_serial_hslite_port_open");
 
 	/* Temporarily increase the refcount on the GSBI clock to avoid a race
 	 * condition with the earlyprintk handover mechanism.
@@ -1861,7 +1862,7 @@ static int msm_serial_hsl_remove(struct platform_device *pdev)
 	pm_runtime_disable(&pdev->dev);
 
 	if (pdata && pdata->use_pm)
-		wakeup_source_trash(&msm_hsl_port->port_open_ws);
+		wake_lock_destroy(&msm_hsl_port->port_open_wake_lock);
 
 	device_set_wakeup_capable(&pdev->dev, 0);
 	platform_set_drvdata(pdev, NULL);
@@ -1988,49 +1989,6 @@ static void __exit msm_serial_hsl_exit(void)
 	platform_driver_unregister(&msm_hsl_platform_driver);
 	uart_unregister_driver(&msm_hsl_uart_driver);
 }
-
-#define MSM_HSL_UART_SR			0xa4
-#define MSM_HSL_UART_ISR		0xb4
-#define MSM_HSL_UART_TF			0x100
-#define MSM_HSL_UART_CR			0xa8
-#define MSM_HSL_UART_NCF_TX		0x40
-#define MSM_HSL_UART_SR_TXEMT		BIT(3)
-#define MSM_HSL_UART_ISR_TXREADY	BIT(7)
-
-#ifdef CONFIG_SERIAL_MSM_HSL_CONSOLE
-static void msm_serial_hsl_early_putc(struct uart_port *port, int ch)
-{
-	while (!(readl_relaxed(port->membase + MSM_HSL_UART_SR) &
-						       MSM_HSL_UART_SR_TXEMT) &&
-	       !(readl_relaxed(port->membase + MSM_HSL_UART_ISR) &
-						     MSM_HSL_UART_ISR_TXREADY))
-		;
-
-	writel_relaxed(0x300, port->membase + MSM_HSL_UART_CR);
-	writel_relaxed(1, port->membase + MSM_HSL_UART_NCF_TX);
-	readl_relaxed(port->membase + MSM_HSL_UART_NCF_TX);
-	writel_relaxed(ch, port->membase + MSM_HSL_UART_TF);
-}
-
-static void msm_serial_hsl_early_write(struct console *con, const char *s,
-				       unsigned n)
-{
-	struct earlycon_device *dev = con->data;
-	uart_console_write(&dev->port, s, n, msm_serial_hsl_early_putc);
-}
-
-static int __init msm_hsl_earlycon_setup(struct earlycon_device *device,
-					      const char *opt)
-{
-	if (!device->port.membase)
-		return -ENODEV;
-
-	device->con->write = msm_serial_hsl_early_write;
-	return 0;
-}
-EARLYCON_DECLARE(msm_hsl_uart, msm_hsl_earlycon_setup);
-OF_EARLYCON_DECLARE(msm_hsl_uart, "qcom,msm-hsl-uart", msm_hsl_earlycon_setup);
-#endif
 
 module_init(msm_serial_hsl_init);
 module_exit(msm_serial_hsl_exit);

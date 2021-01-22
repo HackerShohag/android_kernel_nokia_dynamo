@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,31 +13,25 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/ipa.h>
+#include "ipa_i.h"
 #include "ipa_rm_dependency_graph.h"
 #include "ipa_rm_i.h"
-#include "ipa_common_i.h"
 
 static const char *resource_name_to_str[IPA_RM_RESOURCE_MAX] = {
 	__stringify(IPA_RM_RESOURCE_Q6_PROD),
 	__stringify(IPA_RM_RESOURCE_USB_PROD),
-	__stringify(IPA_RM_RESOURCE_USB_DPL_DUMMY_PROD),
 	__stringify(IPA_RM_RESOURCE_HSIC_PROD),
 	__stringify(IPA_RM_RESOURCE_STD_ECM_PROD),
 	__stringify(IPA_RM_RESOURCE_RNDIS_PROD),
 	__stringify(IPA_RM_RESOURCE_WWAN_0_PROD),
 	__stringify(IPA_RM_RESOURCE_WLAN_PROD),
 	__stringify(IPA_RM_RESOURCE_ODU_ADAPT_PROD),
-	__stringify(IPA_RM_RESOURCE_MHI_PROD),
-	__stringify(IPA_RM_RESOURCE_ETHERNET_PROD),
 	__stringify(IPA_RM_RESOURCE_Q6_CONS),
 	__stringify(IPA_RM_RESOURCE_USB_CONS),
-	__stringify(IPA_RM_RESOURCE_USB_DPL_CONS),
 	__stringify(IPA_RM_RESOURCE_HSIC_CONS),
 	__stringify(IPA_RM_RESOURCE_WLAN_CONS),
 	__stringify(IPA_RM_RESOURCE_APPS_CONS),
 	__stringify(IPA_RM_RESOURCE_ODU_ADAPT_CONS),
-	__stringify(IPA_RM_RESOURCE_MHI_CONS),
-	__stringify(IPA_RM_RESOURCE_ETHERNET_CONS),
 };
 
 struct ipa_rm_profile_vote_type {
@@ -79,11 +73,6 @@ int ipa_rm_create_resource(struct ipa_rm_create_params *create_params)
 	struct ipa_rm_resource *resource;
 	unsigned long flags;
 	int result;
-
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
 
 	if (!create_params) {
 		IPA_RM_ERR("invalid args\n");
@@ -141,11 +130,6 @@ int ipa_rm_delete_resource(enum ipa_rm_resource_name resource_name)
 	unsigned long flags;
 	int result;
 
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
-
 	IPA_RM_DBG("%s\n", ipa_rm_resource_str(resource_name));
 	spin_lock_irqsave(&ipa_rm_ctx->ipa_rm_lock, flags);
 	if (ipa_rm_dep_graph_get_resource(ipa_rm_ctx->dep_graph,
@@ -174,34 +158,9 @@ bail:
 }
 EXPORT_SYMBOL(ipa_rm_delete_resource);
 
-static int _ipa_rm_add_dependency(enum ipa_rm_resource_name resource_name,
-			enum ipa_rm_resource_name depends_on_name,
-			bool userspace_dep)
-{
-	unsigned long flags;
-	int result;
-
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
-
-	IPA_RM_DBG("%s -> %s\n", ipa_rm_resource_str(resource_name),
-				 ipa_rm_resource_str(depends_on_name));
-	spin_lock_irqsave(&ipa_rm_ctx->ipa_rm_lock, flags);
-	result = ipa_rm_dep_graph_add_dependency(
-						ipa_rm_ctx->dep_graph,
-						resource_name,
-						depends_on_name,
-						userspace_dep);
-	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
-	IPA_RM_DBG("EXIT with %d\n", result);
-
-	return result;
-}
-
 /**
- * ipa_rm_add_dependency() - create dependency between 2 resources
+ * ipa_rm_add_dependency() - create dependency
+ *					between 2 resources
  * @resource_name: name of dependent resource
  * @depends_on_name: name of its dependency
  *
@@ -213,42 +172,8 @@ static int _ipa_rm_add_dependency(enum ipa_rm_resource_name resource_name,
 int ipa_rm_add_dependency(enum ipa_rm_resource_name resource_name,
 			enum ipa_rm_resource_name depends_on_name)
 {
-	return _ipa_rm_add_dependency(resource_name, depends_on_name, false);
-}
-EXPORT_SYMBOL(ipa_rm_add_dependency);
-
-/**
- * ipa_rm_add_dependency_from_ioctl() - create dependency between 2 resources
- * @resource_name: name of dependent resource
- * @depends_on_name: name of its dependency
- *
- * This function is expected to be called from IOCTL and the dependency will be
- * marked as is was added by the userspace.
- *
- * Returns: 0 on success, negative on failure
- *
- * Side effects: IPA_RM_RESORCE_GRANTED could be generated
- * in case client registered with IPA RM
- */
-int ipa_rm_add_dependency_from_ioctl(enum ipa_rm_resource_name resource_name,
-			enum ipa_rm_resource_name depends_on_name)
-{
-	return _ipa_rm_add_dependency(resource_name, depends_on_name, true);
-}
-
-static int _ipa_rm_add_dependency_sync(enum ipa_rm_resource_name resource_name,
-		enum ipa_rm_resource_name depends_on_name,
-		bool userspsace_dep)
-{
-	int result;
-	struct ipa_rm_resource *consumer;
-	unsigned long time;
 	unsigned long flags;
-
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
+	int result;
 
 	IPA_RM_DBG("%s -> %s\n", ipa_rm_resource_str(resource_name),
 				 ipa_rm_resource_str(depends_on_name));
@@ -256,109 +181,18 @@ static int _ipa_rm_add_dependency_sync(enum ipa_rm_resource_name resource_name,
 	result = ipa_rm_dep_graph_add_dependency(
 						ipa_rm_ctx->dep_graph,
 						resource_name,
-						depends_on_name,
-						userspsace_dep);
-	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
-	if (result == -EINPROGRESS) {
-		ipa_rm_dep_graph_get_resource(ipa_rm_ctx->dep_graph,
-				depends_on_name,
-				&consumer);
-		IPA_RM_DBG("%s waits for GRANT of %s.\n",
-				ipa_rm_resource_str(resource_name),
-				ipa_rm_resource_str(depends_on_name));
-		time = wait_for_completion_timeout(
-				&((struct ipa_rm_resource_cons *)consumer)->
-				request_consumer_in_progress,
-				HZ * 5);
-		result = 0;
-		if (!time) {
-			IPA_RM_ERR("TIMEOUT waiting for %s GRANT event.",
-					ipa_rm_resource_str(depends_on_name));
-			result = -ETIME;
-		} else {
-			IPA_RM_DBG("%s waited for %s GRANT %lu time.\n",
-				ipa_rm_resource_str(resource_name),
-				ipa_rm_resource_str(depends_on_name),
-				time);
-		}
-	}
-	IPA_RM_DBG("EXIT with %d\n", result);
-
-	return result;
-}
-/**
- * ipa_rm_add_dependency_sync() - Create a dependency between 2 resources
- * in a synchronized fashion. In case a producer resource is in GRANTED state
- * and the newly added consumer resource is in RELEASED state, the consumer
- * entity will be requested and the function will block until the consumer
- * is granted.
- * @resource_name: name of dependent resource
- * @depends_on_name: name of its dependency
- *
- * This function is expected to be called from IOCTL and the dependency will be
- * marked as is was added by the userspace.
- *
- * Returns: 0 on success, negative on failure
- *
- * Side effects: May block. See documentation above.
- */
-int ipa_rm_add_dependency_sync(enum ipa_rm_resource_name resource_name,
-		enum ipa_rm_resource_name depends_on_name)
-{
-	return _ipa_rm_add_dependency_sync(resource_name, depends_on_name,
-		false);
-}
-EXPORT_SYMBOL(ipa_rm_add_dependency_sync);
-
-/**
- * ipa_rm_add_dependency_sync_from_ioctl() - Create a dependency between 2
- * resources in a synchronized fashion. In case a producer resource is in
- * GRANTED state and the newly added consumer resource is in RELEASED state,
- * the consumer entity will be requested and the function will block until
- * the consumer is granted.
- * @resource_name: name of dependent resource
- * @depends_on_name: name of its dependency
- *
- * Returns: 0 on success, negative on failure
- *
- * Side effects: May block. See documentation above.
- */
-int ipa_rm_add_dependency_sync_from_ioctl(
-	enum ipa_rm_resource_name resource_name,
-	enum ipa_rm_resource_name depends_on_name)
-{
-	return _ipa_rm_add_dependency_sync(resource_name, depends_on_name,
-		true);
-}
-
-static int _ipa_rm_delete_dependency(enum ipa_rm_resource_name resource_name,
-			enum ipa_rm_resource_name depends_on_name,
-			bool userspace_dep)
-{
-	unsigned long flags;
-	int result;
-
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
-
-	IPA_RM_DBG("%s -> %s\n", ipa_rm_resource_str(resource_name),
-				 ipa_rm_resource_str(depends_on_name));
-	spin_lock_irqsave(&ipa_rm_ctx->ipa_rm_lock, flags);
-	result = ipa_rm_dep_graph_delete_dependency(
-			  ipa_rm_ctx->dep_graph,
-			  resource_name,
-			  depends_on_name,
-			  userspace_dep);
+						depends_on_name);
 	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
 	IPA_RM_DBG("EXIT with %d\n", result);
 
 	return result;
 }
+EXPORT_SYMBOL(ipa_rm_add_dependency);
+
 
 /**
- * ipa_rm_delete_dependency() - delete dependency between 2 resources
+ * ipa_rm_delete_dependency() - create dependency
+ *					between 2 resources
  * @resource_name: name of dependent resource
  * @depends_on_name: name of its dependency
  *
@@ -370,28 +204,22 @@ static int _ipa_rm_delete_dependency(enum ipa_rm_resource_name resource_name,
 int ipa_rm_delete_dependency(enum ipa_rm_resource_name resource_name,
 			enum ipa_rm_resource_name depends_on_name)
 {
-	return _ipa_rm_delete_dependency(resource_name, depends_on_name, false);
+	unsigned long flags;
+	int result;
+
+	IPA_RM_DBG("%s -> %s\n", ipa_rm_resource_str(resource_name),
+				 ipa_rm_resource_str(depends_on_name));
+	spin_lock_irqsave(&ipa_rm_ctx->ipa_rm_lock, flags);
+	result = ipa_rm_dep_graph_delete_dependency(
+			  ipa_rm_ctx->dep_graph,
+			  resource_name,
+			  depends_on_name);
+	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
+	IPA_RM_DBG("EXIT with %d\n", result);
+
+	return result;
 }
 EXPORT_SYMBOL(ipa_rm_delete_dependency);
-
-/**
- * ipa_rm_delete_dependency_fron_ioctl() - delete dependency between 2 resources
- * @resource_name: name of dependent resource
- * @depends_on_name: name of its dependency
- *
- * This function is expected to be called from IOCTL and the dependency will be
- * marked as is was added by the userspace.
- *
- * Returns: 0 on success, negative on failure
- *
- * Side effects: IPA_RM_RESORCE_GRANTED could be generated
- * in case client registered with IPA RM
- */
-int ipa_rm_delete_dependency_from_ioctl(enum ipa_rm_resource_name resource_name,
-			enum ipa_rm_resource_name depends_on_name)
-{
-	return _ipa_rm_delete_dependency(resource_name, depends_on_name, true);
-}
 
 /**
  * ipa_rm_request_resource() - request resource
@@ -407,11 +235,6 @@ int ipa_rm_request_resource(enum ipa_rm_resource_name resource_name)
 	struct ipa_rm_resource *resource;
 	unsigned long flags;
 	int result;
-
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
 
 	if (!IPA_RM_RESORCE_IS_PROD(resource_name)) {
 		IPA_RM_ERR("can be called on PROD only\n");
@@ -458,8 +281,7 @@ void delayed_release_work_func(struct work_struct *work)
 	}
 
 	ipa_rm_resource_consumer_release(
-		(struct ipa_rm_resource_cons *)resource, rwork->needed_bw,
-		rwork->dec_usage_count);
+		(struct ipa_rm_resource_cons *)resource, rwork->needed_bw);
 
 bail:
 	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
@@ -495,7 +317,7 @@ int ipa_rm_request_resource_with_timer(enum ipa_rm_resource_name resource_name)
 		goto bail;
 	}
 	result = ipa_rm_resource_consumer_request(
-		(struct ipa_rm_resource_cons *)resource, 0, false, true);
+			(struct ipa_rm_resource_cons *)resource, 0);
 	if (result != 0 && result != -EINPROGRESS) {
 		IPA_RM_ERR("consumer request returned error %d\n", result);
 		result = -EPERM;
@@ -509,7 +331,6 @@ int ipa_rm_request_resource_with_timer(enum ipa_rm_resource_name resource_name)
 	}
 	release_work->resource_name = resource->name;
 	release_work->needed_bw = 0;
-	release_work->dec_usage_count = false;
 	INIT_DELAYED_WORK(&release_work->work, delayed_release_work_func);
 	schedule_delayed_work(&release_work->work,
 			msecs_to_jiffies(IPA_RM_RELEASE_DELAY_IN_MSEC));
@@ -519,7 +340,6 @@ bail:
 
 	return result;
 }
-
 /**
  * ipa_rm_release_resource() - release resource
  * @resource_name: [in] name of the requested resource
@@ -534,11 +354,6 @@ int ipa_rm_release_resource(enum ipa_rm_resource_name resource_name)
 	unsigned long flags;
 	struct ipa_rm_resource *resource;
 	int result;
-
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
 
 	if (!IPA_RM_RESORCE_IS_PROD(resource_name)) {
 		IPA_RM_ERR("can be called on PROD only\n");
@@ -664,14 +479,7 @@ int ipa_rm_set_perf_profile(enum ipa_rm_resource_name resource_name,
 	unsigned long flags;
 	struct ipa_rm_resource *resource;
 
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
-
 	IPA_RM_DBG("%s\n", ipa_rm_resource_str(resource_name));
-	if (profile)
-		IPA_RM_DBG("BW: %d\n", profile->max_supported_bandwidth_mbps);
 
 	spin_lock_irqsave(&ipa_rm_ctx->ipa_rm_lock, flags);
 	if (ipa_rm_dep_graph_get_resource(ipa_rm_ctx->dep_graph,
@@ -712,11 +520,6 @@ int ipa_rm_notify_completion(enum ipa_rm_event event,
 {
 	int result;
 
-	if (unlikely(!ipa_rm_ctx)) {
-		IPA_RM_ERR("IPA RM was not initialized\n");
-		return -EINVAL;
-	}
-
 	IPA_RM_DBG("event %d on %s\n", event,
 				ipa_rm_resource_str(resource_name));
 	if (!IPA_RM_RESORCE_IS_CONS(resource_name)) {
@@ -744,7 +547,7 @@ static void ipa_rm_wq_handler(struct work_struct *work)
 			container_of(work,
 					struct ipa_rm_wq_work_type,
 					work);
-	IPA_RM_DBG_LOW("%s cmd=%d event=%d notify_registered_only=%d\n",
+	IPA_RM_DBG("%s cmd=%d event=%d notify_registered_only=%d\n",
 		ipa_rm_resource_str(ipa_rm_work->resource_name),
 		ipa_rm_work->wq_cmd,
 		ipa_rm_work->event,
@@ -801,29 +604,26 @@ static void ipa_rm_wq_resume_handler(struct work_struct *work)
 			container_of(work,
 			struct ipa_rm_wq_suspend_resume_work_type,
 			work);
-		IPA_RM_DBG_LOW("resume work handler: %s",
+	IPA_RM_DBG("resume work handler: %s",
 		ipa_rm_resource_str(ipa_rm_work->resource_name));
 
 	if (!IPA_RM_RESORCE_IS_CONS(ipa_rm_work->resource_name)) {
 		IPA_RM_ERR("resource is not CONS\n");
 		return;
 	}
-	IPA_ACTIVE_CLIENTS_INC_RESOURCE(ipa_rm_resource_str(
-			ipa_rm_work->resource_name));
+	ipa_inc_client_enable_clks();
 	spin_lock_irqsave(&ipa_rm_ctx->ipa_rm_lock, flags);
 	if (ipa_rm_dep_graph_get_resource(ipa_rm_ctx->dep_graph,
 					ipa_rm_work->resource_name,
 					&resource) != 0){
 		IPA_RM_ERR("resource does not exists\n");
 		spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
-		IPA_ACTIVE_CLIENTS_DEC_RESOURCE(ipa_rm_resource_str(
-				ipa_rm_work->resource_name));
+		ipa_dec_client_disable_clks();
 		goto bail;
 	}
 	ipa_rm_resource_consumer_request_work(
 			(struct ipa_rm_resource_cons *)resource,
-			ipa_rm_work->prev_state, ipa_rm_work->needed_bw, true,
-			ipa_rm_work->inc_usage_count);
+			ipa_rm_work->prev_state, ipa_rm_work->needed_bw, true);
 	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
 bail:
 	kfree(ipa_rm_work);
@@ -838,7 +638,7 @@ static void ipa_rm_wq_suspend_handler(struct work_struct *work)
 			container_of(work,
 			struct ipa_rm_wq_suspend_resume_work_type,
 			work);
-		IPA_RM_DBG_LOW("suspend work handler: %s",
+	IPA_RM_DBG("suspend work handler: %s",
 		ipa_rm_resource_str(ipa_rm_work->resource_name));
 
 	if (!IPA_RM_RESORCE_IS_CONS(ipa_rm_work->resource_name)) {
@@ -879,7 +679,6 @@ int ipa_rm_wq_send_cmd(enum ipa_rm_wq_cmd wq_cmd,
 {
 	int result = -ENOMEM;
 	struct ipa_rm_wq_work_type *work = kzalloc(sizeof(*work), GFP_ATOMIC);
-
 	if (work) {
 		INIT_WORK((struct work_struct *)work, ipa_rm_wq_handler);
 		work->wq_cmd = wq_cmd;
@@ -919,8 +718,7 @@ int ipa_rm_wq_send_suspend_cmd(enum ipa_rm_resource_name resource_name,
 
 int ipa_rm_wq_send_resume_cmd(enum ipa_rm_resource_name resource_name,
 		enum ipa_rm_resource_state prev_state,
-		u32 needed_bw,
-		bool inc_usage_count)
+		u32 needed_bw)
 {
 	int result = -ENOMEM;
 	struct ipa_rm_wq_suspend_resume_work_type *work = kzalloc(sizeof(*work),
@@ -930,7 +728,6 @@ int ipa_rm_wq_send_resume_cmd(enum ipa_rm_resource_name resource_name,
 		work->resource_name = resource_name;
 		work->prev_state = prev_state;
 		work->needed_bw = needed_bw;
-		work->inc_usage_count = inc_usage_count;
 		result = queue_work(ipa_rm_ctx->ipa_rm_wq,
 				(struct work_struct *)work);
 	} else {
@@ -992,8 +789,6 @@ int ipa_rm_stat(char *buf, int size)
 	unsigned long flags;
 	int i, cnt = 0, result = EINVAL;
 	struct ipa_rm_resource *resource = NULL;
-	u32 sum_bw_prod = 0;
-	u32 sum_bw_cons = 0;
 
 	if (!buf || size < 0)
 		return result;
@@ -1013,24 +808,6 @@ int ipa_rm_stat(char *buf, int size)
 			cnt += result;
 		}
 	}
-
-	for (i = 0; i < IPA_RM_RESOURCE_PROD_MAX; i++)
-		sum_bw_prod += ipa_rm_ctx->prof_vote.bw_prods[i];
-
-	for (i = 0; i < IPA_RM_RESOURCE_CONS_MAX; i++)
-		sum_bw_cons += ipa_rm_ctx->prof_vote.bw_cons[i];
-
-	result = scnprintf(buf + cnt, size - cnt,
-		"All prod bandwidth: %d, All cons bandwidth: %d\n",
-		sum_bw_prod, sum_bw_cons);
-	cnt += result;
-
-	result = scnprintf(buf + cnt, size - cnt,
-		"Voting: voltage %d, bandwidth %d\n",
-		ipa_rm_ctx->prof_vote.curr_volt,
-		ipa_rm_ctx->prof_vote.curr_bw);
-	cnt += result;
-
 	result = cnt;
 bail:
 	spin_unlock_irqrestore(&ipa_rm_ctx->ipa_rm_lock, flags);
@@ -1057,7 +834,7 @@ static void ipa_rm_perf_profile_notify_to_ipa_work(struct work_struct *work)
 				work);
 	int res;
 
-	IPA_RM_DBG_LOW("calling to IPA driver. voltage %d bandwidth %d\n",
+	IPA_RM_DBG("calling to IPA driver. voltage %d bandwidth %d\n",
 		notify_work->volt, notify_work->bandwidth_mbps);
 
 	res = ipa_set_required_perf_profile(notify_work->volt,
@@ -1067,7 +844,7 @@ static void ipa_rm_perf_profile_notify_to_ipa_work(struct work_struct *work)
 		goto bail;
 	}
 
-	IPA_RM_DBG_LOW("IPA driver notified\n");
+	IPA_RM_DBG("IPA driver notified\n");
 bail:
 	kfree(notify_work);
 }
@@ -1105,7 +882,7 @@ void ipa_rm_perf_profile_change(enum ipa_rm_resource_name resource_name)
 	u32 sum_bw_prod = 0;
 	u32 sum_bw_cons = 0;
 
-	IPA_RM_DBG_LOW("%s\n", ipa_rm_resource_str(resource_name));
+	IPA_RM_DBG("%s\n", ipa_rm_resource_str(resource_name));
 
 	if (ipa_rm_dep_graph_get_resource(ipa_rm_ctx->dep_graph,
 					  resource_name,
@@ -1118,20 +895,16 @@ void ipa_rm_perf_profile_change(enum ipa_rm_resource_name resource_name)
 	old_volt = ipa_rm_ctx->prof_vote.curr_volt;
 	old_bw = ipa_rm_ctx->prof_vote.curr_bw;
 
-	if (IPA_RM_RESORCE_IS_PROD(resource_name)) {
+	if (IPA_RM_RESORCE_IS_PROD(resource_name))
 		bw_ptr = &ipa_rm_ctx->prof_vote.bw_prods[resource_name];
-	} else if (IPA_RM_RESORCE_IS_CONS(resource_name)) {
+	else
 		bw_ptr = &ipa_rm_ctx->prof_vote.bw_cons[
 				resource_name - IPA_RM_RESOURCE_PROD_MAX];
-	} else {
-		IPA_RM_ERR("Invalid resource_name\n");
-		return;
-	}
 
 	switch (resource->state) {
 	case IPA_RM_GRANTED:
 	case IPA_RM_REQUEST_IN_PROGRESS:
-		IPA_RM_DBG_LOW("max_bw = %d, needed_bw = %d\n",
+		IPA_RM_DBG("max_bw = %d, needed_bw = %d\n",
 			resource->max_bw, resource->needed_bw);
 		*bw_ptr = min(resource->max_bw, resource->needed_bw);
 		ipa_rm_ctx->prof_vote.volt[resource_name] =
@@ -1149,7 +922,7 @@ void ipa_rm_perf_profile_change(enum ipa_rm_resource_name resource_name)
 		WARN_ON(1);
 		return;
 	}
-	IPA_RM_DBG_LOW("resource bandwidth: %d voltage: %d\n", *bw_ptr,
+	IPA_RM_DBG("resource bandwidth: %d voltage: %d\n", *bw_ptr,
 					resource->floor_voltage);
 
 	ipa_rm_ctx->prof_vote.curr_volt = IPA_VOLTAGE_UNSPECIFIED;
@@ -1167,17 +940,17 @@ void ipa_rm_perf_profile_change(enum ipa_rm_resource_name resource_name)
 	for (i = 0; i < IPA_RM_RESOURCE_CONS_MAX; i++)
 		sum_bw_cons += ipa_rm_ctx->prof_vote.bw_cons[i];
 
-	IPA_RM_DBG_LOW("all prod bandwidth: %d all cons bandwidth: %d\n",
+	IPA_RM_DBG("all prod bandwidth: %d all cons bandwidth: %d\n",
 		sum_bw_prod, sum_bw_cons);
 	ipa_rm_ctx->prof_vote.curr_bw = min(sum_bw_prod, sum_bw_cons);
 
 	if (ipa_rm_ctx->prof_vote.curr_volt == old_volt &&
 		ipa_rm_ctx->prof_vote.curr_bw == old_bw) {
-		IPA_RM_DBG_LOW("same voting\n");
+		IPA_RM_DBG("same voting\n");
 		return;
 	}
 
-	IPA_RM_DBG_LOW("new voting: voltage %d bandwidth %d\n",
+	IPA_RM_DBG("new voting: voltage %d bandwidth %d\n",
 		ipa_rm_ctx->prof_vote.curr_volt,
 		ipa_rm_ctx->prof_vote.curr_bw);
 

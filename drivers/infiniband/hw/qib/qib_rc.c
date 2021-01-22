@@ -752,7 +752,7 @@ void qib_send_rc_ack(struct qib_qp *qp)
 	qib_flush_wc();
 	qib_sendbuf_done(dd, pbufn);
 
-	this_cpu_inc(ibp->pmastats->n_unicast_xmit);
+	ibp->n_unicast_xmit++;
 	goto done;
 
 queue_ack:
@@ -2086,10 +2086,8 @@ send_last:
 		ret = qib_get_rwqe(qp, 1);
 		if (ret < 0)
 			goto nack_op_err;
-		if (!ret) {
-			qib_put_ss(&qp->r_sge);
+		if (!ret)
 			goto rnr_nak;
-		}
 		wc.ex.imm_data = ohdr->u.rc.imm_data;
 		hdrsize += 4;
 		wc.wc_flags = IB_WC_WITH_IMM;

@@ -98,7 +98,6 @@
 #include <asm/processor.h>
 #include <linux/atomic.h>
 
-#include <linux/kasan.h>
 #include <linux/kmemcheck.h>
 #include <linux/kmemleak.h>
 #include <linux/memory_hotplug.h>
@@ -400,7 +399,7 @@ static void dump_object_info(struct kmemleak_object *object)
 	pr_notice("  min_count = %d\n", object->min_count);
 	pr_notice("  count = %d\n", object->count);
 	pr_notice("  flags = 0x%lx\n", object->flags);
-	pr_notice("  checksum = %u\n", object->checksum);
+	pr_notice("  checksum = %d\n", object->checksum);
 	pr_notice("  backtrace:\n");
 	print_stack_trace(&trace, 4);
 }
@@ -918,13 +917,12 @@ EXPORT_SYMBOL_GPL(kmemleak_alloc);
  * kmemleak_alloc_percpu - register a newly allocated __percpu object
  * @ptr:	__percpu pointer to beginning of the object
  * @size:	size of the object
- * @gfp:	flags used for kmemleak internal memory allocations
  *
  * This function is called from the kernel percpu allocator when a new object
- * (memory block) is allocated (alloc_percpu).
+ * (memory block) is allocated (alloc_percpu). It assumes GFP_KERNEL
+ * allocation.
  */
-void __ref kmemleak_alloc_percpu(const void __percpu *ptr, size_t size,
-				 gfp_t gfp)
+void __ref kmemleak_alloc_percpu(const void __percpu *ptr, size_t size)
 {
 	unsigned int cpu;
 
@@ -937,7 +935,7 @@ void __ref kmemleak_alloc_percpu(const void __percpu *ptr, size_t size,
 	if (kmemleak_enabled && ptr && !IS_ERR(ptr))
 		for_each_possible_cpu(cpu)
 			create_object((unsigned long)per_cpu_ptr(ptr, cpu),
-				      size, 0, gfp);
+				      size, 0, GFP_KERNEL);
 	else if (kmemleak_early_log)
 		log_early(KMEMLEAK_ALLOC_PERCPU, ptr, size, 0);
 }
@@ -1002,40 +1000,6 @@ void __ref kmemleak_free_percpu(const void __percpu *ptr)
 		log_early(KMEMLEAK_FREE_PERCPU, ptr, 0, 0);
 }
 EXPORT_SYMBOL_GPL(kmemleak_free_percpu);
-
-/**
- * kmemleak_update_trace - update object allocation stack trace
- * @ptr:	pointer to beginning of the object
- *
- * Override the object allocation stack trace for cases where the actual
- * allocation place is not always useful.
- */
-void __ref kmemleak_update_trace(const void *ptr)
-{
-	struct kmemleak_object *object;
-	unsigned long flags;
-
-	pr_debug("%s(0x%p)\n", __func__, ptr);
-
-	if (!kmemleak_enabled || IS_ERR_OR_NULL(ptr))
-		return;
-
-	object = find_and_get_object((unsigned long)ptr, 1);
-	if (!object) {
-#ifdef DEBUG
-		kmemleak_warn("Updating stack trace for unknown object at %p\n",
-			      ptr);
-#endif
-		return;
-	}
-
-	spin_lock_irqsave(&object->lock, flags);
-	object->trace_len = __save_stack_trace(object->trace);
-	spin_unlock_irqrestore(&object->lock, flags);
-
-	put_object(object);
-}
-EXPORT_SYMBOL(kmemleak_update_trace);
 
 /**
  * kmemleak_not_leak - mark an allocated object as false positive
@@ -1127,10 +1091,7 @@ static bool update_checksum(struct kmemleak_object *object)
 	if (!kmemcheck_is_obj_initialized(object->pointer, object->size))
 		return false;
 
-	kasan_disable_current();
 	object->checksum = crc32(0, (void *)object->pointer, object->size);
-	kasan_enable_current();
-
 	return object->checksum != old_csum;
 }
 
@@ -1181,9 +1142,7 @@ static void scan_block(void *_start, void *_end,
 						  BYTES_PER_POINTER))
 			continue;
 
-		kasan_disable_current();
 		pointer = *ptr;
-		kasan_enable_current();
 
 		object = find_and_get_object(pointer, 1);
 		if (!object)
@@ -1353,7 +1312,7 @@ static void kmemleak_scan(void)
 	/*
 	 * Struct page scanning for each node.
 	 */
-	get_online_mems();
+	lock_memory_hotplug();
 	for_each_online_node(i) {
 		unsigned long start_pfn = node_start_pfn(i);
 		unsigned long end_pfn = node_end_pfn(i);
@@ -1371,7 +1330,7 @@ static void kmemleak_scan(void)
 			scan_block(page, page + 1, NULL, 1);
 		}
 	}
-	put_online_mems();
+	unlock_memory_hotplug();
 
 	/*
 	 * Scanning the task stacks (may introduce false negatives).
@@ -1602,6 +1561,11 @@ static int kmemleak_open(struct inode *inode, struct file *file)
 	return seq_open(file, &kmemleak_seq_ops);
 }
 
+static int kmemleak_release(struct inode *inode, struct file *file)
+{
+	return seq_release(inode, file);
+}
+
 static int dump_str_object_info(const char *str)
 {
 	unsigned long flags;
@@ -1708,7 +1672,7 @@ static ssize_t kmemleak_write(struct file *file, const char __user *user_buf,
 	else if (strncmp(buf, "scan=", 5) == 0) {
 		unsigned long secs;
 
-		ret = kstrtoul(buf + 5, 0, &secs);
+		ret = strict_strtoul(buf + 5, 0, &secs);
 		if (ret < 0)
 			goto out;
 		stop_scan_thread();
@@ -1739,7 +1703,7 @@ static const struct file_operations kmemleak_fops = {
 	.read		= seq_read,
 	.write		= kmemleak_write,
 	.llseek		= seq_lseek,
-	.release	= seq_release,
+	.release	= kmemleak_release,
 };
 
 static void __kmemleak_do_cleanup(void)
@@ -1837,9 +1801,10 @@ void __init kmemleak_init(void)
 	int i;
 	unsigned long flags;
 
+	kmemleak_early_log = 0;
+
 #ifdef CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF
 	if (!kmemleak_skip_disable) {
-		kmemleak_early_log = 0;
 		kmemleak_disable();
 		return;
 	}
@@ -1857,7 +1822,6 @@ void __init kmemleak_init(void)
 
 	/* the kernel is still in UP mode, so disabling the IRQs is enough */
 	local_irq_save(flags);
-	kmemleak_early_log = 0;
 	if (kmemleak_error) {
 		local_irq_restore(flags);
 		return;

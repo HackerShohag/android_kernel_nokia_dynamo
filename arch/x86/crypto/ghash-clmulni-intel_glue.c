@@ -25,17 +25,17 @@
 #define GHASH_BLOCK_SIZE	16
 #define GHASH_DIGEST_SIZE	16
 
-void clmul_ghash_mul(char *dst, const u128 *shash);
+void clmul_ghash_mul(char *dst, const be128 *shash);
 
 void clmul_ghash_update(char *dst, const char *src, unsigned int srclen,
-			const u128 *shash);
+			const be128 *shash);
 
 struct ghash_async_ctx {
 	struct cryptd_ahash *cryptd_tfm;
 };
 
 struct ghash_ctx {
-	u128 shash;
+	be128 shash;
 };
 
 struct ghash_desc_ctx {
@@ -68,11 +68,11 @@ static int ghash_setkey(struct crypto_shash *tfm,
 	a = be64_to_cpu(x->a);
 	b = be64_to_cpu(x->b);
 
-	ctx->shash.a = (b << 1) | (a >> 63);
-	ctx->shash.b = (a << 1) | (b >> 63);
+	ctx->shash.a = (__be64)((b << 1) | (a >> 63));
+	ctx->shash.b = (__be64)((a << 1) | (b >> 63));
 
 	if (a >> 63)
-		ctx->shash.b ^= ((u64)0xc2) << 56;
+		ctx->shash.b ^= cpu_to_be64(0xc2);
 
 	return 0;
 }
@@ -218,29 +218,6 @@ static int ghash_async_final(struct ahash_request *req)
 	}
 }
 
-static int ghash_async_import(struct ahash_request *req, const void *in)
-{
-	struct ahash_request *cryptd_req = ahash_request_ctx(req);
-	struct shash_desc *desc = cryptd_shash_desc(cryptd_req);
-	struct ghash_desc_ctx *dctx = shash_desc_ctx(desc);
-
-	ghash_async_init(req);
-	memcpy(dctx, in, sizeof(*dctx));
-	return 0;
-
-}
-
-static int ghash_async_export(struct ahash_request *req, void *out)
-{
-	struct ahash_request *cryptd_req = ahash_request_ctx(req);
-	struct shash_desc *desc = cryptd_shash_desc(cryptd_req);
-	struct ghash_desc_ctx *dctx = shash_desc_ctx(desc);
-
-	memcpy(out, dctx, sizeof(*dctx));
-	return 0;
-
-}
-
 static int ghash_async_digest(struct ahash_request *req)
 {
 	struct crypto_ahash *tfm = crypto_ahash_reqtfm(req);
@@ -308,16 +285,12 @@ static struct ahash_alg ghash_async_alg = {
 	.final		= ghash_async_final,
 	.setkey		= ghash_async_setkey,
 	.digest		= ghash_async_digest,
-	.export		= ghash_async_export,
-	.import		= ghash_async_import,
 	.halg = {
 		.digestsize	= GHASH_DIGEST_SIZE,
-		.statesize = sizeof(struct ghash_desc_ctx),
 		.base = {
 			.cra_name		= "ghash",
 			.cra_driver_name	= "ghash-clmulni",
 			.cra_priority		= 400,
-			.cra_ctxsize		= sizeof(struct ghash_async_ctx),
 			.cra_flags		= CRYPTO_ALG_TYPE_AHASH | CRYPTO_ALG_ASYNC,
 			.cra_blocksize		= GHASH_BLOCK_SIZE,
 			.cra_type		= &crypto_ahash_type,
@@ -368,4 +341,4 @@ module_exit(ghash_pclmulqdqni_mod_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("GHASH Message Digest Algorithm, "
 		   "acclerated by PCLMULQDQ-NI");
-MODULE_ALIAS_CRYPTO("ghash");
+MODULE_ALIAS("ghash");

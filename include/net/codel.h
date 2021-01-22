@@ -46,6 +46,7 @@
 #include <linux/skbuff.h>
 #include <net/pkt_sched.h>
 #include <net/inet_ecn.h>
+#include <linux/reciprocal_div.h>
 
 /* Controlling Queue Delay (CoDel) algorithm
  * =========================================
@@ -66,26 +67,15 @@ typedef s32 codel_tdiff_t;
 
 static inline codel_time_t codel_get_time(void)
 {
-	u64 ns = ktime_get_ns();
+	u64 ns = ktime_to_ns(ktime_get());
 
 	return ns >> CODEL_SHIFT;
 }
 
-/* Dealing with timer wrapping, according to RFC 1982, as desc in wikipedia:
- *  https://en.wikipedia.org/wiki/Serial_number_arithmetic#General_Solution
- * codel_time_after(a,b) returns true if the time a is after time b.
- */
-#define codel_time_after(a, b)						\
-	(typecheck(codel_time_t, a) &&					\
-	 typecheck(codel_time_t, b) &&					\
-	 ((s32)((a) - (b)) > 0))
-#define codel_time_before(a, b) 	codel_time_after(b, a)
-
-#define codel_time_after_eq(a, b)					\
-	(typecheck(codel_time_t, a) &&					\
-	 typecheck(codel_time_t, b) &&					\
-	 ((s32)((a) - (b)) >= 0))
-#define codel_time_before_eq(a, b)	codel_time_after_eq(b, a)
+#define codel_time_after(a, b)		((s32)(a) - (s32)(b) > 0)
+#define codel_time_after_eq(a, b)	((s32)(a) - (s32)(b) >= 0)
+#define codel_time_before(a, b)		((s32)(a) - (s32)(b) < 0)
+#define codel_time_before_eq(a, b)	((s32)(a) - (s32)(b) <= 0)
 
 /* Qdiscs using codel plugin must use codel_skb_cb in their own cb[] */
 struct codel_skb_cb {
@@ -158,13 +148,11 @@ struct codel_vars {
  * struct codel_stats - contains codel shared variables and stats
  * @maxpacket:	largest packet we've seen so far
  * @drop_count:	temp count of dropped packets in dequeue()
- * @drop_len:	bytes of dropped packets in dequeue()
  * ecn_mark:	number of packets we ECN marked instead of dropping
  */
 struct codel_stats {
 	u32		maxpacket;
 	u32		drop_count;
-	u32		drop_len;
 	u32		ecn_mark;
 };
 
@@ -212,8 +200,9 @@ static codel_time_t codel_control_law(codel_time_t t,
 				      codel_time_t interval,
 				      u32 rec_inv_sqrt)
 {
-	return t + reciprocal_scale(interval, rec_inv_sqrt << REC_INV_SQRT_SHIFT);
+	return t + reciprocal_divide(interval, rec_inv_sqrt << REC_INV_SQRT_SHIFT);
 }
+
 
 static bool codel_should_drop(const struct sk_buff *skb,
 			      struct Qdisc *sch,
@@ -299,7 +288,6 @@ static struct sk_buff *codel_dequeue(struct Qdisc *sch,
 								  vars->rec_inv_sqrt);
 					goto end;
 				}
-				stats->drop_len += qdisc_pkt_len(skb);
 				qdisc_drop(skb, sch);
 				stats->drop_count++;
 				skb = dequeue_func(vars, sch);
@@ -322,7 +310,6 @@ static struct sk_buff *codel_dequeue(struct Qdisc *sch,
 		if (params->ecn && INET_ECN_set_ce(skb)) {
 			stats->ecn_mark++;
 		} else {
-			stats->drop_len += qdisc_pkt_len(skb);
 			qdisc_drop(skb, sch);
 			stats->drop_count++;
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -67,22 +67,9 @@ enum codec_versions {
 	CONGA,
 	CAJON,
 	CAJON_2_0,
-	DIANGU,
 	UNSUPPORTED,
 };
 
-/* Support different hph modes */
-enum {
-	NORMAL_MODE = 0,
-	HD2_MODE,
-};
-
-/* Codec supports 1 compander */
-enum {
-	COMPANDER_NONE = 0,
-	COMPANDER_1, /* HPHL/R */
-	COMPANDER_MAX,
-};
 
 enum wcd_curr_ref {
 	I_h4_UA = 0,
@@ -233,7 +220,6 @@ struct msm8916_asoc_mach_data {
 /* headphoneSwitch-00+} */
 	int mclk_freq;
 	int lb_mode;
-	int afe_clk_ver;
 	u8 micbias1_cap_mode;
 	u8 micbias2_cap_mode;
 	atomic_t mclk_rsc_ref;
@@ -249,6 +235,19 @@ struct msm8916_asoc_mach_data {
 	void __iomem *vaddr_gpio_mux_quin_ctl;
 	void __iomem *vaddr_gpio_mux_pcm_ctl;
 	struct on_demand_supply wsa_switch_supply;
+	struct snd_info_entry *codec_root;
+	/*20150606, Add boost_bp_pin for boost BYPASS mode, according to page24 of 80-NP409-5B*/
+	//pinctrl for ext_boost bypass mode
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *ear_ext_boost_act; //bypass mode
+	struct pinctrl_state *ear_ext_boost_sus;//shutdown mode
+
+  /* headphoneSwitch-00+{ */
+	struct pinctrl_state *ext_spk_gpio_act; //enable mode
+	struct pinctrl_state *ext_spk_gpio_sus;//disable mode
+	struct pinctrl_state *hp_switch_gpio_act; //enable mode
+	struct pinctrl_state *hp_switch_gpio_sus;//disable mode
+ /* headphoneSwitch-00+} */
 };
 
 struct msm8x16_wcd_pdata {
@@ -302,10 +301,6 @@ struct msm8x16_wcd_priv {
 	bool clock_active;
 	bool config_mode_active;
 	u16 boost_option;
-	/* mode to select hd2 */
-	u32 hph_mode;
-	/* compander used for each rx chain */
-	u32 comp_enabled[MSM8X16_WCD_RX_MAX];
 	bool spk_boost_set;
 	bool ear_pa_boost_set;
 	bool ext_spk_boost_set;
@@ -318,7 +313,6 @@ struct msm8x16_wcd_priv {
 	struct fw_info *fw_data;
 	struct blocking_notifier_head notifier;
 	int (*codec_spk_ext_pa_cb)(struct snd_soc_codec *codec, int enable);
-	int (*codec_hph_comp_gpio)(bool enable);
 	unsigned long status_mask;
 	struct wcd_imped_i_ref imped_i_ref;
 	enum wcd_mbhc_imp_det_pin imped_det_pin;
@@ -335,15 +329,9 @@ extern int msm8x16_wcd_hs_detect(struct snd_soc_codec *codec,
 
 extern void msm8x16_wcd_hs_detect_exit(struct snd_soc_codec *codec);
 
-extern void msm8x16_update_int_spk_boost(bool enable);
-
 extern void msm8x16_wcd_spk_ext_pa_cb(
 		int (*codec_spk_ext_pa)(struct snd_soc_codec *codec,
 		int enable), struct snd_soc_codec *codec);
-
-extern void msm8x16_wcd_hph_comp_cb(
-		int (*codec_hph_comp_gpio)(bool enable),
-		struct snd_soc_codec *codec);
 		
 /* headphoneSwitch-00+{ */
 extern void msm8x16_wcd_headphone_switch(

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,8 +34,8 @@ enum {
 	ADM_AUDVOL_CAL,
 	ADM_RTAC_INFO_CAL,
 	ADM_RTAC_APR_CAL,
+	ADM_DTS_EAGLE,
 	ADM_SRS_TRUMEDIA,
-	ADM_RTAC_AUDVOL_CAL,
 	ADM_MAX_CAL_TYPES
 };
 
@@ -64,18 +64,11 @@ struct route_payload {
 	unsigned int session_id;
 };
 
-struct default_chmixer_param_id_coeff {
-	uint32_t index;
-	uint16_t num_output_channels;
-	uint16_t num_input_channels;
-};
-
-struct msm_pcm_channel_mixer {
-	int output_channel;
-	int input_channels[ADM_MAX_CHANNELS];
-	bool enable;
-	int rule;
-	int channel_weight[ADM_MAX_CHANNELS][ADM_MAX_CHANNELS];
+struct route_ec_ref_cfg {
+	u16 channel;
+	u16 bit_width;
+	u32 sample_rate;
+	int port_id;
 };
 
 int srs_trumedia_open(int port_id, int copp_idx, __s32 srs_tech_id,
@@ -86,8 +79,6 @@ int adm_dts_eagle_set(int port_id, int copp_idx, int param_id,
 
 int adm_dts_eagle_get(int port_id, int copp_idx, int param_id,
 		      void *data, uint32_t size);
-
-void adm_copp_mfc_cfg(int port_id, int copp_idx, int dst_sample_rate);
 
 int adm_get_params(int port_id, int copp_idx, uint32_t module_id,
 		   uint32_t param_id, uint32_t params_length, char *params);
@@ -100,7 +91,7 @@ int adm_dolby_dap_send_params(int port_id, int copp_idx, char *params,
 
 int adm_open(int port, int path, int rate, int mode, int topology,
 			   int perf_mode, uint16_t bits_per_sample,
-			   int app_type, int acdbdev_id, int session_type);
+			   int app_type, int acdbdev_id);
 
 int adm_map_rtac_block(struct rtac_cal_block_data *cal_block);
 
@@ -115,17 +106,11 @@ int adm_connect_afe_port(int mode, int session_id, int port_id);
 
 void adm_ec_ref_rx_id(int  port_id);
 
-void adm_num_ec_ref_rx_chans(int num_chans);
-
-void adm_ec_ref_rx_bit_width(int bit_width);
-
-void adm_ec_ref_rx_sampling_rate(int sampling_rate);
-
 int adm_get_lowlatency_copp_id(int port_id);
 
-int adm_set_multi_ch_map(char *channel_map, int path);
+void adm_set_multi_ch_map(char *channel_map);
 
-int adm_get_multi_ch_map(char *channel_map, int path);
+void adm_get_multi_ch_map(char *channel_map);
 
 int adm_validate_and_get_port_index(int port_id);
 
@@ -148,11 +133,6 @@ int adm_set_volume(int port_id, int copp_idx, int volume);
 
 int adm_set_softvolume(int port_id, int copp_idx,
 		       struct audproc_softvolume_params *softvol_param);
-
-int adm_set_mic_gain(int port_id, int copp_idx, int volume);
-
-int adm_send_set_multichannel_ec_primary_mic_ch(int port_id, int copp_idx,
-				int primary_mic_ch);
 
 int adm_param_enable(int port_id, int copp_idx, int module_id,  int enable);
 
@@ -177,8 +157,5 @@ int adm_get_sound_focus(int port_id, int copp_idx,
 			struct sound_focus_param *soundFocusData);
 int adm_get_source_tracking(int port_id, int copp_idx,
 			    struct source_tracking_param *sourceTrackingData);
-int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
-			int session_type,
-			struct msm_pcm_channel_mixer *ch_mixer,
-			int channel_index);
+void adm_lec_ref_cfg(struct route_ec_ref_cfg ref_cfg);
 #endif /* __Q6_ADM_V2_H__ */

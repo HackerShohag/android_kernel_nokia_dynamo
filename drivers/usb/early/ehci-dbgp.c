@@ -568,6 +568,10 @@ try_again:
 		dbgp_printk("Could not find attached debug device\n");
 		goto err;
 	}
+	if (ret < 0) {
+		dbgp_printk("Attached device is not a debug device\n");
+		goto err;
+	}
 	dbgp_endpoint_out = dbgp_desc.bDebugOutEndpoint;
 	dbgp_endpoint_in = dbgp_desc.bDebugInEndpoint;
 
@@ -888,7 +892,7 @@ int __init early_dbgp_init(char *s)
 	set_fixmap_nocache(FIX_DBGP_BASE, bar_val & PAGE_MASK);
 	ehci_bar = (void __iomem *)__fix_to_virt(FIX_DBGP_BASE);
 	ehci_bar += bar_val & ~PAGE_MASK;
-	dbgp_printk("ehci_bar: %p\n", ehci_bar);
+	dbgp_printk("ehci_bar: %pK\n", ehci_bar);
 
 	ehci_caps  = ehci_bar;
 	ehci_regs  = ehci_bar + EARLY_HC_LENGTH(readl(&ehci_caps->hc_capbase));

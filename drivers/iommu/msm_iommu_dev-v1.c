@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -461,7 +461,8 @@ static int msm_iommu_probe(struct platform_device *pdev)
 		ret = devm_request_threaded_irq(&pdev->dev, global_cfg_irq,
 				NULL,
 				msm_iommu_global_fault_handler,
-				IRQF_ONESHOT | IRQF_SHARED,
+				IRQF_ONESHOT | IRQF_SHARED |
+				IRQF_TRIGGER_RISING,
 				"msm_iommu_global_cfg_irq", pdev);
 		if (ret < 0)
 			pr_err("Request Global CFG IRQ %d failed with ret=%d\n",
@@ -474,14 +475,13 @@ static int msm_iommu_probe(struct platform_device *pdev)
 		ret = devm_request_threaded_irq(&pdev->dev, global_client_irq,
 				NULL,
 				msm_iommu_global_fault_handler,
-				IRQF_ONESHOT | IRQF_SHARED,
+				IRQF_ONESHOT | IRQF_SHARED |
+				IRQF_TRIGGER_RISING,
 				"msm_iommu_global_client_irq", pdev);
 		if (ret < 0)
 			pr_err("Request Global Client IRQ %d failed with ret=%d\n",
 					global_client_irq, ret);
 	}
-
-	idr_init(&drvdata->asid_idr);
 
 	ret = of_platform_populate(pdev->dev.of_node, msm_iommu_ctx_match_table,
 				   NULL, &pdev->dev);
@@ -506,7 +506,6 @@ static int msm_iommu_remove(struct platform_device *pdev)
 
 	drv = platform_get_drvdata(pdev);
 	if (drv) {
-		idr_destroy(&drv->asid_idr);
 		__put_bus_vote_client(drv);
 		clk_unprepare(drv->clk);
 		clk_unprepare(drv->pclk);
@@ -532,8 +531,16 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 
 	get_secure_ctx(pdev->dev.of_node, drvdata, ctx_drvdata);
 
-	if (ctx_drvdata->secure_context) {
+	if (drvdata->sec_id != -1) {
 		irq = platform_get_irq(pdev, 1);
+
+		/*
+		 * This is for supporting old DTs where it was assumed
+		 * that interrupt 0 is only required as their CB is
+		 * non-secure.
+		 */
+		if (irq < 0)
+			irq = platform_get_irq(pdev, 0);
 
 		if (irq > 0) {
 			ret = devm_request_threaded_irq(&pdev->dev, irq, NULL,
@@ -574,7 +581,7 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	/* Calculate the context bank number using the base addresses.
 	 * Typically CB0 base address is 0x8000 pages away if the number
 	 * of CBs are <=8. So, assume the offset 0x8000 until mentioned
-	 * explicitly.
+	 * explicitely.
 	 */
 	cb_offset = drvdata->cb_base - drvdata->base;
 	ctx_drvdata->num = ((r->start - rp.start - cb_offset)
@@ -626,10 +633,6 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	}
 	ctx_drvdata->n_sid_mask = n_sid_mask;
 
-	if (!of_property_read_u32(pdev->dev.of_node, "qcom,prefetch-depth",
-				&(ctx_drvdata->prefetch_depth)))
-		ctx_drvdata->prefetch_depth = 0;
-
 out:
 	return ret;
 }
@@ -656,9 +659,6 @@ static int msm_iommu_ctx_probe(struct platform_device *pdev)
 
 		dev_info(&pdev->dev, "context %s using bank %d\n",
 			 ctx_drvdata->name, ctx_drvdata->num);
-
-		if (strcmp(ctx_drvdata->name, "access_control") == 0)
-			msm_access_control();
 	}
 
 	return ret;

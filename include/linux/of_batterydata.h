@@ -57,7 +57,7 @@ int of_batterydata_fih_read_battery_id(struct device_node *batterydata_container
 #else
 static inline int of_batterydata_read_data(struct device_node *container_node,
 				struct bms_battery_data *batt_data,
-				int batt_id_uv)
+				int batt_id_uv);
 {
 	return -ENXIO;
 }

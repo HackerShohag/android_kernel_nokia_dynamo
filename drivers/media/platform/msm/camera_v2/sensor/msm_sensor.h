@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,14 +38,6 @@
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
-enum msm_sensor_sensor_slave_info_type {
-	MSM_SENSOR_SLAVEADDR_DATA,
-	MSM_SENSOR_IDREGADDR_DATA,
-	MSM_SENSOR_SENSOR_ID_DATA,
-	MSM_SENSOR_SENIDMASK_DATA,
-	MSM_SENSOR_NUM_ID_INFO_DATA,
-};
-
 struct msm_sensor_ctrl_t;
 
 enum msm_sensor_state_t {
@@ -54,13 +46,13 @@ enum msm_sensor_state_t {
 };
 
 struct msm_sensor_fn_t {
-	int (*sensor_config)(struct msm_sensor_ctrl_t *, void __user *);
+	int (*sensor_config) (struct msm_sensor_ctrl_t *, void __user *);
 #ifdef CONFIG_COMPAT
-	int (*sensor_config32)(struct msm_sensor_ctrl_t *, void __user *);
+	int (*sensor_config32) (struct msm_sensor_ctrl_t *, void __user *);
 #endif
-	int (*sensor_power_down)(struct msm_sensor_ctrl_t *);
-	int (*sensor_power_up)(struct msm_sensor_ctrl_t *);
-	int (*sensor_match_id)(struct msm_sensor_ctrl_t *);
+	int (*sensor_power_down) (struct msm_sensor_ctrl_t *);
+	int (*sensor_power_up) (struct msm_sensor_ctrl_t *);
+	int (*sensor_match_id) (struct msm_sensor_ctrl_t *);
 };
 
 struct msm_sensor_ctrl_t {
@@ -87,9 +79,6 @@ struct msm_sensor_ctrl_t {
 	struct device_node *of_node;
 	enum msm_camera_stream_type_t camera_stream_type;
 	uint32_t set_mclk_23880000;
-	uint8_t is_csid_tg_mode;
-	uint32_t is_secure;
-	uint8_t bypass_video_node_creation;
 };
 
 int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp);
@@ -102,7 +91,12 @@ int msm_sensor_check_id(struct msm_sensor_ctrl_t *s_ctrl);
 
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl);
 
+int32_t msm_sensor_platform_probe(struct platform_device *pdev,
+	const void *data);
 int msm_sensor_update_cfg(struct msm_sensor_ctrl_t *s_ctrl);
+
+int msm_sensor_i2c_probe(struct i2c_client *client,
+	const struct i2c_device_id *id, struct msm_sensor_ctrl_t *s_ctrl);
 
 int msm_sensor_free_sensor_data(struct msm_sensor_ctrl_t *s_ctrl);
 

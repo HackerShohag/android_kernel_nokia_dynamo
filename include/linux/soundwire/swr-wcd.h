@@ -21,8 +21,7 @@ enum {
 	SWR_CH_MAP,
 	SWR_DEVICE_DOWN,
 	SWR_DEVICE_UP,
-	SWR_SUBSYS_RESTART,
-	SWR_SET_NUM_RX_CH,
+	SWR_SUBSYS_RESTART
 };
 
 struct swr_mstr_port {

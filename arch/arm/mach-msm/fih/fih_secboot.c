@@ -12,7 +12,7 @@
 
 #define SECBOOT_ENABLED_MEM_ADDR  0x0005C098  //jason add for get fused status
 #define SECBOOT_ENABLED_MEM_MASK  0x00303030
-#define SECBOOT_ENABLED_MEM_VALUE  0x00303030 //jason add for get fused status
+#define SECBOOT_ENABLED_MEM_VALUE  0x00000030 //jason add for get fused status
 
 #define SECBIIT_SERIAL_NO_ADDR  0x00058008
 

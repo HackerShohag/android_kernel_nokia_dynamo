@@ -36,25 +36,21 @@ int drm_create_iommu_mapping(struct drm_device *drm_dev)
 		priv->da_start = EXYNOS_DEV_ADDR_START;
 	if (!priv->da_space_size)
 		priv->da_space_size = EXYNOS_DEV_ADDR_SIZE;
+	if (!priv->da_space_order)
+		priv->da_space_order = EXYNOS_DEV_ADDR_ORDER;
 
 	mapping = arm_iommu_create_mapping(&platform_bus_type, priv->da_start,
-						priv->da_space_size);
-
+						priv->da_space_size,
+						priv->da_space_order);
 	if (IS_ERR(mapping))
 		return PTR_ERR(mapping);
 
 	dev->dma_parms = devm_kzalloc(dev, sizeof(*dev->dma_parms),
 					GFP_KERNEL);
-	if (!dev->dma_parms)
-		goto error;
-
 	dma_set_max_seg_size(dev, 0xffffffffu);
 	dev->archdata.mapping = mapping;
 
 	return 0;
-error:
-	arm_iommu_release_mapping(mapping);
-	return -ENOMEM;
 }
 
 /*
@@ -87,19 +83,15 @@ int drm_iommu_attach_device(struct drm_device *drm_dev,
 	struct device *dev = drm_dev->dev;
 	int ret;
 
-	if (!dev->archdata.mapping)
-		return 0;
+	if (!dev->archdata.mapping) {
+		DRM_ERROR("iommu_mapping is null.\n");
+		return -EFAULT;
+	}
 
 	subdrv_dev->dma_parms = devm_kzalloc(subdrv_dev,
 					sizeof(*subdrv_dev->dma_parms),
 					GFP_KERNEL);
-	if (!subdrv_dev->dma_parms)
-		return -ENOMEM;
-
 	dma_set_max_seg_size(subdrv_dev, 0xffffffffu);
-
-	if (subdrv_dev->archdata.mapping)
-		arm_iommu_detach_device(subdrv_dev);
 
 	ret = arm_iommu_attach_device(subdrv_dev, dev->archdata.mapping);
 	if (ret < 0) {
@@ -115,8 +107,8 @@ int drm_iommu_attach_device(struct drm_device *drm_dev,
 	 * If iommu attach succeeded, the sub driver would have dma_ops
 	 * for iommu and also all sub drivers have same dma_ops.
 	 */
-	if (get_dma_ops(dev) == get_dma_ops(NULL))
-		set_dma_ops(dev, get_dma_ops(subdrv_dev));
+	if (!dev->archdata.dma_ops)
+		dev->archdata.dma_ops = subdrv_dev->archdata.dma_ops;
 
 	return 0;
 }
@@ -139,5 +131,6 @@ void drm_iommu_detach_device(struct drm_device *drm_dev,
 	if (!mapping || !mapping->domain)
 		return;
 
-	arm_iommu_detach_device(subdrv_dev);
+	iommu_detach_device(mapping->domain, subdrv_dev);
+	drm_release_iommu_mapping(drm_dev);
 }

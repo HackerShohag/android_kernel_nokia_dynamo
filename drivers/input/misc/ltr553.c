@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015,2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -723,7 +723,7 @@ static int ltr553_calc_adc(int ratio, int lux, int gain, int als_int_fac)
 	struct als_coeff *eqtn;
 	int result;
 
-	/* avoid divided by 0 */
+	/* avoid devided by 0 */
 	if (ratio == 0)
 		return 0;
 
@@ -1147,6 +1147,8 @@ static int ltr553_enable_ps(struct ltr553_data *ltr, int enable)
 		}
 
 		ltr->ps_enabled = true;
+		if (!ltr->als_enabled)
+			enable_irq(ltr->irq);
 
 	} else {
 		/* disable ps_sensor */
@@ -1159,6 +1161,8 @@ static int ltr553_enable_ps(struct ltr553_data *ltr, int enable)
 		}
 
 		ltr->ps_enabled = false;
+		if (!ltr->als_enabled)
+			disable_irq(ltr->irq);
 	}
 exit:
 	return rc;
@@ -1216,6 +1220,8 @@ static int ltr553_enable_als(struct ltr553_data *ltr, int enable)
 		}
 
 		ltr->als_enabled = true;
+		if (!ltr->ps_enabled)
+			enable_irq(ltr->irq);
 	} else {
 		/* disable als sensor */
 		rc = regmap_write(ltr->regmap, LTR553_REG_ALS_CTL,
@@ -1227,6 +1233,8 @@ static int ltr553_enable_als(struct ltr553_data *ltr, int enable)
 		}
 
 		ltr->als_enabled = false;
+		if (!ltr->ps_enabled)
+			disable_irq(ltr->irq);
 	}
 
 exit:
@@ -1862,8 +1870,10 @@ static int ltr553_probe(struct i2c_client *client,
 
 	ltr = devm_kzalloc(&client->dev, sizeof(struct ltr553_data),
 			GFP_KERNEL);
-	if (!ltr)
+	if (!ltr) {
+		dev_err(&client->dev, "memory allocation failed,\n");
 		return -ENOMEM;
+	}
 
 	ltr->i2c = client;
 
@@ -1962,8 +1972,9 @@ static int ltr553_probe(struct i2c_client *client,
 		/* device wakeup initialization */
 		device_init_wakeup(&client->dev, 1);
 
+		disable_irq(ltr->irq);
 		ltr->workqueue = alloc_workqueue("ltr553_workqueue",
-				WQ_FREEZABLE, 0);
+				WQ_NON_REENTRANT | WQ_FREEZABLE, 0);
 		INIT_WORK(&ltr->report_work, ltr553_report_work);
 		INIT_WORK(&ltr->als_enable_work, ltr553_als_enable_work);
 		INIT_WORK(&ltr->als_disable_work, ltr553_als_disable_work);
@@ -2133,13 +2144,13 @@ static int ltr553_suspend(struct device *dev)
 		}
 	} else {
 		/* power off */
-		disable_irq(ltr->irq);
+		if (ltr->als_enabled)
+			disable_irq(ltr->irq);
 		if (ltr->power_enabled) {
 			res = sensor_power_config(dev, power_config,
 					ARRAY_SIZE(power_config), false);
 			if (res) {
 				dev_err(dev, "failed to suspend ltr553\n");
-				enable_irq(ltr->irq);
 				goto exit;
 			}
 		}
@@ -2206,8 +2217,6 @@ static int ltr553_resume(struct device *dev)
 				goto exit_power_off;
 			}
 		}
-
-		enable_irq(ltr->irq);
 	}
 
 	return res;
@@ -2243,12 +2252,12 @@ static const struct dev_pm_ops ltr553_pm_ops = {
 };
 
 static struct i2c_driver ltr553_driver = {
-	.probe		= ltr553_probe,
-	.remove	=	ltr553_remove,
-	.id_table	= ltr553_id,
-	.driver	= {
-		.owner	= THIS_MODULE,
-		.name	= LTR553_I2C_NAME,
+	.probe = ltr553_probe,
+	.remove = ltr553_remove,
+	.id_table = ltr553_id,
+	.driver = {
+		.owner = THIS_MODULE,
+		.name = LTR553_I2C_NAME,
 		.of_match_table = ltr553_match_table,
 		.pm = &ltr553_pm_ops,
 	},
